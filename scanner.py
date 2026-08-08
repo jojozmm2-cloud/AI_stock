@@ -171,12 +171,19 @@ def scan_stock(code, data):
     # 最終スコアを整数化
     score = round(score)
     return {
-        "code": code,
-        "score": score,
-        "price": price,
-        "rsi": rsi,
-        "change_5d": change_5d,
-        "volume_ratio": volume_ratio,
+    "code": code,
+    "score": score,
+    "price": price,
+    "rsi": rsi,
+    "change_5d": change_5d,
+    "volume_ratio": volume_ratio,
+
+    # スコア内訳
+    "ma_score": round(ma_score),
+    "macd_score": round(macd_score),
+    "rsi_score": round(rsi_score),
+    "volume_score": round(volume_score),
+    "momentum_score": round(momentum_score),
     }
 
 
@@ -263,10 +270,12 @@ if __name__ == "__main__":
     for i, stock in enumerate(ranking, 1):
 
         print(
-            f"{i:2}. "
-            f"{stock['code']:8} "
-            f"スコア {stock['score']:3}/100 "
-            f"RSI {stock['rsi']:5.1f} "
-            f"5日 {stock['change_5d']:+6.2f}% "
-            f"出来高 {stock['volume_ratio']:.2f}倍"
-        )
+        f"{i:2}. "
+        f"{stock['code']:8} "
+        f"合計 {stock['score']:3}/100 "
+        f"| 移動平均 {stock['ma_score']:2}/20 "
+        f"| MACD {stock['macd_score']:2}/20 "
+        f"| RSI {stock['rsi_score']:2}/20 "
+        f"| 出来高 {stock['volume_score']:2}/20 "
+        f"| 勢い {stock['momentum_score']:2}/20"
+    )
