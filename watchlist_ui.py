@@ -36,7 +36,9 @@ def manage_watchlist(window, code_entry):
 
         code_entry.delete(0, tk.END)
         code_entry.insert(0, ", ".join(codes))
-        save_watchlist()
+
+        save_watchlist(list(codes))
+        
         manager.destroy()
 
     tk.Button(

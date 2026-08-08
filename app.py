@@ -4,8 +4,7 @@ from watchlist_ui import manage_watchlist
 from price_alert import (
     load_price_alerts,
     check_price_alert,
-    show_price_alert_settings,
-    PRICE_ALERTS_FILE
+    show_price_alert_settings
 )
 from analysis import run_analysis
 from discord_notify import (
@@ -27,7 +26,6 @@ from chart import show_chart
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
 from datetime import datetime
-import json
 import yfinance as yf
 import matplotlib.pyplot as plt
 plt.rcParams["font.family"] = "Meiryo"
@@ -41,7 +39,6 @@ from auto import (
     start_auto,
     stop_auto
 )
-price_alerts = {}
 
 window = tk.Tk()
 window.title("AI株分析ツール")
@@ -70,88 +67,6 @@ code_entry = create_code_entry(
 last_alert = {}
 auto_running = False
 interval_var = tk.StringVar(value="5")
-      
-def show_price_alert_settings(window, code_entry):
-    code = code_entry.get().strip().upper()
-
-    settings = tk.Toplevel(window)
-    settings.title("価格アラートの設定")
-    settings.geometry("350x260")
-
-    tk.Label(
-        settings,
-        text="銘柄コード"
-    ).pack(pady=(15, 3))
-
-    alert_code_entry = tk.Entry(
-        settings,
-        font=("Arial", 12)
-    )
-    alert_code_entry.pack(padx=20, fill="x")
-    alert_code_entry.insert(0, code)
-
-    tk.Label(
-        settings,
-        text="上限価格"
-    ).pack(pady=(15, 3))
-
-    upper_entry = tk.Entry(
-        settings,
-        font=("Arial", 12)
-    )
-    upper_entry.pack(padx=20, fill="x")
-
-    tk.Label(
-        settings,
-        text="下限価格"
-    ).pack(pady=(15, 3))
-
-    lower_entry = tk.Entry(
-        settings,
-        font=("Arial", 12)
-    )
-    lower_entry.pack(padx=20, fill="x")
-
-    saved_alert = price_alerts.get(code, {})
-
-    if saved_alert.get("upper") is not None:
-        upper_entry.insert(0, str(saved_alert["upper"]))
-
-    if saved_alert.get("lower") is not None:
-        lower_entry.insert(0, str(saved_alert["lower"]))  
-
-    def save_price_alert():
-        code = alert_code_entry.get().strip().upper()
-
-        try:
-            upper = float(upper_entry.get()) if upper_entry.get() else None
-            lower = float(lower_entry.get()) if lower_entry.get() else None
-        except ValueError:
-            messagebox.showerror("価格アラート", "価格は数字で入力してください")
-            return
-
-        if not code:
-            messagebox.showerror("価格アラート", "銘柄コードを入力してください")
-            return
-
-        price_alerts[code] = {
-            "upper": upper,
-             "lower": lower
-        }
-
-        with open(PRICE_ALERTS_FILE, "w", encoding="utf-8") as f:
-            json.dump(price_alerts, f, ensure_ascii=False, indent=4)
-
-        print("保存先:", PRICE_ALERTS_FILE)
-
-        messagebox.showinfo("価格アラート", f"{code} の設定を保存しました")
-        settings.destroy()
-
-    tk.Button(
-        settings,
-        text="価格アラートを保存",
-        command=save_price_alert
-    ).pack(pady=15)
 
 def show_ranking():
     ranking = create_ranking()
