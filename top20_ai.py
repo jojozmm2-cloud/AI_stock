@@ -32,6 +32,47 @@ NAMES_FILE = Path(__file__).with_name("paypay_names.json")
 def load_company_names():
     with open(NAMES_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
+
+def make_reasons(stock):
+    reasons = []
+
+    result = stock["result"]
+    rsi = stock["rsi"]
+    change_5d = stock["change_5d"]
+    volume_ratio = stock["volume_ratio"]
+
+    # 総合判定
+    if "総合判定: 買い候補" in result:
+        reasons.append("テクニカル総合判定が買い候補")
+
+    # MACD
+    if "📈 MACD: 上向き" in result:
+        reasons.append("MACD上向き")
+
+    # RSI
+    if 45 <= rsi <= 65:
+        reasons.append(f"RSI {rsi:.1f}で中立圏")
+
+    # 出来高
+    if volume_ratio >= 1.2:
+        reasons.append(
+            f"5日平均出来高が20日平均の{volume_ratio:.2f}倍"
+        )
+
+    # 5日間の値動き
+    if 0 < change_5d <= 8:
+        reasons.append(
+            f"直近5日で{change_5d:+.2f}%"
+        )
+
+    # トレンド
+    if "🚀 強い上昇" in result:
+        reasons.append("20日平均比で強い上昇")
+    elif "📈 上昇傾向" in result:
+        reasons.append("20日平均比で上昇傾向")
+
+    # 最大3個
+    return reasons[:3]
     
 def get_ai_probability(ai_comment):
     """
@@ -121,6 +162,11 @@ def analyze_top20():
                 "scan_score": stock["score"],
                 "ai_probability": ai_probability,
                 "final_score": final_score,
+
+                "rsi": stock["rsi"],
+                "change_5d": stock["change_5d"],
+                "volume_ratio": stock["volume_ratio"],
+
                 "result": result,
                 "news": news,
                 "ai_comment": ai_comment,
@@ -185,19 +231,25 @@ if __name__ == "__main__":
         else:
             medal = f"{i}位"
 
-        name = get_company_name(stock["code"])
         name = company_names.get(
             stock["code"],
             stock["code"]
+        )
+        reasons = make_reasons(stock)
+
+        reason_text = "\n".join(
+            f"・{reason}"
+            for reason in reasons
         )
 
         message += (
             f"{medal} **{name}（{stock['code']}）**\n"
             f"最終スコア: {stock['final_score']:.1f}/100\n"
-            f"高速スキャン: {stock['scan_score']}/100\n"
-            f"AI評価: {stock['ai_probability']}%\n\n"
+            f"AI評価: {stock['ai_probability']}%\n"
+            f"\n📌 **理由**\n"
+            f"{reason_text}\n\n"
         )
-
+        
     message += "🤖 AI Stock Tool"
 
     # Discord送信
