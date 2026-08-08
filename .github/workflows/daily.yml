@@ -1,0 +1,43 @@
+name: Daily AI Stock Ranking
+
+on:
+  schedule:
+    # 日本時間 毎朝8:00
+    # GitHub ActionsのcronはUTCなので 23:00 UTC
+    - cron: "0 23 * * *"
+
+  # 手動テスト用
+  workflow_dispatch:
+
+jobs:
+  ranking:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pythonライブラリをインストール
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance pandas requests feedparser openai python-dotenv playwright
+
+      - name: Chromiumをインストール
+        run: |
+          python -m playwright install --with-deps chromium
+
+      - name: PayPay証券の最新銘柄を取得
+        run: |
+          python paypay_symbols.py
+
+      - name: AIランキングを作成してDiscordへ送信
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python top20_ai.py
