@@ -84,38 +84,92 @@ def scan_stock(code, data):
 
     score = 0
 
-    # 20日平均より上
-    if price > ma20:
-        score += 20
 
-    # MACD上向き
-    if macd_up:
-        score += 20
+    # ① 20日移動平均との位置 20点
+    ma_gap = ((price / ma20) - 1) * 100
 
-    # RSI
-    if 45 <= rsi <= 65:
-        score += 20
+    if 0 <= ma_gap <= 5:
+        ma_score = 12 + (ma_gap / 5) * 8
 
-    elif 35 <= rsi < 45:
-        score += 10
+    elif 5 < ma_gap <= 10:
+        ma_score = 20 - ((ma_gap - 5) / 5) * 10
 
-    elif 65 < rsi <= 70:
-        score += 10
+    elif -3 <= ma_gap < 0:
+        ma_score = 8 + ma_gap
 
-    # 出来高
-    if volume_ratio >= 1.5:
-        score += 20
+    else:
+        ma_score = 0
+
+    score += ma_score
+
+
+    # ② MACD 20点
+    macd_hist = macd.iloc[-1] - signal.iloc[-1]
+    macd_hist_prev = macd.iloc[-2] - signal.iloc[-2]
+
+    if macd_hist > 0 and macd_hist > macd_hist_prev:
+        macd_score = 20
+
+    elif macd_hist > 0:
+        macd_score = 15
+
+    elif macd_hist <= 0 and macd_hist > macd_hist_prev:
+        macd_score = 8
+
+    else:
+        macd_score = 0
+
+    score += macd_score
+
+
+    # ③ RSI 20点
+    # RSI55付近を高評価
+    rsi_score = 20 - abs(rsi - 55) * 1.2
+
+    rsi_score = max(
+        0,
+        min(20, rsi_score)
+    )
+
+    score += rsi_score
+
+
+    # ④ 出来高 20点
+    if volume_ratio >= 2.0:
+        volume_score = 20
+
+    elif volume_ratio >= 1.5:
+        volume_score = 16
 
     elif volume_ratio >= 1.2:
-        score += 10
+        volume_score = 12
 
-    # 直近5日の上昇率
-    if 0 < change_5d <= 8:
-        score += 20
+    elif volume_ratio >= 1.0:
+        volume_score = 8
 
-    elif 8 < change_5d <= 15:
-        score += 10
+    elif volume_ratio >= 0.8:
+        volume_score = 4
 
+    else:
+        volume_score = 0
+
+    score += volume_score
+
+
+    # ⑤ 5日間の値動き 20点
+    # +4%付近を高評価
+    momentum_score = 20 - abs(change_5d - 4) * 2.5
+
+    momentum_score = max(
+        0,
+        min(20, momentum_score)
+    )
+
+    score += momentum_score
+
+
+    # 最終スコアを整数化
+    score = round(score)
     return {
         "code": code,
         "score": score,
