@@ -1,4 +1,3 @@
-from scheduler import start_scheduler
 from ranking import create_ranking, NAMES
 from watchlist_ui import manage_watchlist
 from price_alert import (
@@ -31,7 +30,10 @@ import matplotlib.pyplot as plt
 plt.rcParams["font.family"] = "Meiryo"
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from test import analyze_stock
-from watchlist import load_watchlist, save_watchlist
+from watchlist import (
+    load_watchlist as load_watchlist_file,
+    save_watchlist as save_watchlist_file
+)
 from history import save_notification, clear_history
 from auto import (
     save_interval as save_interval_to_file,
@@ -161,25 +163,31 @@ def load_interval():
         interval_var.set(value)
 
 def save_watchlist():
-    codes = code_entry.get().strip()
+    codes = [
+        code.strip().upper()
+        for code in code_entry.get()
+        .replace("\n", ",")
+        .split(",")
+        if code.strip()
+    ]
 
-    with open("watchlist.txt", "w", encoding="utf-8") as file:
-        file.write(codes)
+    save_watchlist_file(codes)
 
-    messagebox.showinfo("監視銘柄", "監視銘柄を保存しました")
+    messagebox.showinfo(
+        "監視銘柄",
+        "監視銘柄を保存しました"
+    )
 
 
 def load_watchlist():
-    try:
-        with open("watchlist.txt", "r", encoding="utf-8") as file:
-            codes = file.read().strip()
+    codes = load_watchlist_file()
 
-        if codes:
-            code_entry.delete(0, tk.END)
-            code_entry.insert(0, codes)
-
-    except FileNotFoundError:
-        pass
+    if codes:
+        code_entry.delete(0, tk.END)
+        code_entry.insert(
+            0,
+            ", ".join(codes)
+        )
 def analyze(code=None, use_ai=True):
     run_analysis(
         code,
@@ -386,6 +394,5 @@ result_text.pack(padx=10, pady=10)
 load_price_alerts()
 load_interval()
 load_watchlist()
-start_scheduler()
 
 window.mainloop()
