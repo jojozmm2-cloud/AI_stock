@@ -35,7 +35,7 @@ def auto_analyze(
     ]
 
     for stock_code in codes:
-        analyze(stock_code)
+        analyze(stock_code, use_ai=False)
 
     window.after(
         int(interval_var.get()) * 60000,

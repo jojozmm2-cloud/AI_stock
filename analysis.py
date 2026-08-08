@@ -23,7 +23,8 @@ def run_analysis(
     decision_label,
     last_alert,
     check_price_alert,
-    current_settings
+    current_settings,
+    use_ai=True
 ):
     # 銘柄コードが渡されなかった場合は入力欄から取得
     if code is None:
@@ -55,17 +56,22 @@ def run_analysis(
 
         result = analyze_stock(stock_code)
 
-        news = get_stock_news(stock_code)
-        comment = analyze_news(news)
-        ai_comment = make_ai_comment(
-            result,
-            "\n".join(news)
-)
-        print(news)
-        if news:
-            result += "\n\n📰 最新ニュース\n"
-            result += "\n".join(f"・{n}" for n in news)
-            result += "\n\n" + comment
+        if use_ai:
+            news = get_stock_news(stock_code)
+            comment = analyze_news(news)
+
+            ai_comment = make_ai_comment(
+                result,
+                "\n".join(news)
+            )
+
+            print(news)
+
+            if news:
+                result += "\n\n📰 最新ニュース\n"
+                result += "\n".join(f"・{n}" for n in news)
+                result += "\n\n" + comment
+
             result += "\n\n🤖 AIコメント\n" + ai_comment
         update_dashboard(
             stock_code,

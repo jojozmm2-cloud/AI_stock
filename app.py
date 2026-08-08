@@ -265,7 +265,7 @@ def load_watchlist():
 
     except FileNotFoundError:
         pass
-def analyze(code=None):
+def analyze(code=None, use_ai=True):
     run_analysis(
         code,
         code_entry,
@@ -281,7 +281,8 @@ def analyze(code=None):
         decision_label,
         last_alert,
         check_price_alert,
-        current_settings
+        current_settings,
+        use_ai
     )
 analysis_section = tk.Label(
     window,
