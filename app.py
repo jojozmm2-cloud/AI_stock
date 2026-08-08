@@ -355,9 +355,9 @@ start_auto_button = create_button(
 )
 
 stop_button = create_button(
-    auto_button_frame,  
+    auto_button_frame,
     "自動分析を停止",
-    stop_auto,
+    lambda: stop_auto(auto_status_label),
     bg_color,
     fg_color
 )
