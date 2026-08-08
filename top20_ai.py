@@ -34,45 +34,27 @@ def load_company_names():
         return json.load(f)
 
 def make_reasons(stock):
-    reasons = []
+    scores = [
+        ("移動平均", stock["ma_score"]),
+        ("MACD", stock["macd_score"]),
+        ("RSI", stock["rsi_score"]),
+        ("出来高", stock["volume_score"]),
+        ("勢い", stock["momentum_score"]),
+    ]
 
-    result = stock["result"]
-    rsi = stock["rsi"]
-    change_5d = stock["change_5d"]
-    volume_ratio = stock["volume_ratio"]
+    # 点数が高い順
+    scores.sort(
+        key=lambda x: x[1],
+        reverse=True
+    )
 
-    # 総合判定
-    if "総合判定: 買い候補" in result:
-        reasons.append("テクニカル総合判定が買い候補")
+    # 上位3項目だけ
+    reasons = [
+        f"{name} {score}/20"
+        for name, score in scores[:3]
+    ]
 
-    # MACD
-    if "📈 MACD: 上向き" in result:
-        reasons.append("MACD上向き")
-
-    # RSI
-    if 45 <= rsi <= 65:
-        reasons.append(f"RSI {rsi:.1f}で中立圏")
-
-    # 出来高
-    if volume_ratio >= 1.2:
-        reasons.append(
-            f"5日平均出来高が20日平均の{volume_ratio:.2f}倍"
-        )
-
-    # 5日間の値動き
-    if 0 < change_5d <= 8:
-        reasons.append(
-            f"直近5日で{change_5d:+.2f}%"
-        )
-
-    # トレンド
-    if "🚀 強い上昇" in result:
-        reasons.append("20日平均比で強い上昇")
-    elif "📈 上昇傾向" in result:
-        reasons.append("20日平均比で上昇傾向")
-
-    # 最大3個
-    return reasons[:3]
+    return reasons
     
 def get_ai_probability(ai_comment):
     """
@@ -167,6 +149,12 @@ def analyze_top20():
                 "change_5d": stock["change_5d"],
                 "volume_ratio": stock["volume_ratio"],
 
+                "ma_score": stock["ma_score"],
+                "macd_score": stock["macd_score"],
+                "rsi_score": stock["rsi_score"],
+                "volume_score": stock["volume_score"],
+                "momentum_score": stock["momentum_score"],
+
                 "result": result,
                 "news": news,
                 "ai_comment": ai_comment,
@@ -249,7 +237,7 @@ if __name__ == "__main__":
             f"\n📌 **理由**\n"
             f"{reason_text}\n\n"
         )
-        
+
     message += "🤖 AI Stock Tool"
 
     # Discord送信
