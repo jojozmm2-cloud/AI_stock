@@ -25,7 +25,7 @@ jobs:
       - name: Pythonライブラリをインストール
         run: |
           python -m pip install --upgrade pip
-          pip install yfinance pandas requests feedparser openai python-dotenv playwright
+          pip install yfinance pandas ta requests feedparser openai python-dotenv playwright
 
       - name: Chromiumをインストール
         run: |
