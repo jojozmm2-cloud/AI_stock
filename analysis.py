@@ -1,3 +1,4 @@
+from settings import load_settings
 from tkinter import messagebox
 
 from dashboard import update_dashboard
@@ -26,6 +27,12 @@ def run_analysis(
     current_settings,
     use_ai=True
 ):
+    settings_now = load_settings()
+
+    notification_enabled = settings_now.get(
+        "notification_enabled",
+        True
+    )
     # 銘柄コードが渡されなかった場合は入力欄から取得
     if code is None:
         raw_codes = (
@@ -86,11 +93,23 @@ def run_analysis(
             decision_label
         )
 
-        message = create_analysis_message(stock_code, result)
-        send_discord(message)
-        print("価格アラート判定を実行:", stock_code)
-        check_price_alert(stock_code, result, current_settings)
-        show_result(result_text, result)
+        if notification_enabled:
+            message = create_analysis_message(
+                stock_code,
+                result
+            )
+            send_discord(message)
+
+            print(
+                "価格アラート判定を実行:",
+                stock_code
+            )
+
+            check_price_alert(
+                stock_code,
+                result,
+                current_settings
+            )
 
         alert = ""
 
@@ -101,8 +120,16 @@ def run_analysis(
             alert = f"🔴 {stock_code}: 売り警戒シグナルです"
 
 
-        if alert and alert != last_alert.get(stock_code):
-            messagebox.showinfo("株価通知", alert)
+        if (
+            notification_enabled
+            and alert
+            and alert != last_alert.get(stock_code)
+        ):
+            messagebox.showinfo(
+                "株価通知",
+                alert
+            )
+
             save_notification(alert)
 
             send_discord(
