@@ -4,6 +4,19 @@ from alerts import send_notification
 from ta.trend import MACD
 from ta.volatility import BollingerBands
 
+def format_number(value, decimals=2):
+    if isinstance(value, (int, float)):
+        return f"{value:.{decimals}f}"
+
+    return "不明"
+
+
+def format_trillion(value):
+    if isinstance(value, (int, float)):
+        return f"{value / 1_000_000_000_000:.2f}兆円"
+
+    return "不明"
+
 def analyze_stock(code):
 
     result = ""
@@ -72,19 +85,23 @@ def analyze_stock(code):
             result += f"MACDシグナル: {macd_signal:.2f}\n"
             result += f"ボリンジャー上限: {bb_upper:.2f}\n"
             result += f"ボリンジャー下限: {bb_lower:.2f}\n"
-            result += f"PER: {per:.2f}倍\n"
-            result += f"PBR: {pbr:.2f}倍\n"
-            result += f"配当利回り: {dividend:.2f}%\n"
-            result += f"時価総額: {market_cap / 1_000_000_000_000:.2f}兆円\n"
+            result += f"PER: {format_number(per)}倍\n"
+            result += f"PBR: {format_number(pbr)}倍\n"
+            result += f"配当利回り: {format_number(dividend)}%\n"
+            result += f"時価総額: {format_trillion(market_cap)}\n"
 
             result += f"EPS: {eps}円\n"
-            result += f"売上高: {revenue / 1_000_000_000_000:.2f}兆円\n"
+            result += f"売上高: {format_trillion(revenue)}\n"
 
-            if operating_income != "不明":
+            if isinstance(operating_income, (int, float)):
                 result += f"営業利益率: {operating_income * 100:.1f}%\n"
+            else:
+                result += "営業利益率: 不明\n"
 
-            if net_income != "不明":
+            if isinstance(net_income, (int, float)):
                 result += f"純利益: {net_income / 1_000_000_000:.1f}億円\n"
+            else:
+                result += "純利益: 不明\n"
 
             if today > bb_upper:
                result += "⚠️ 価格: 高め\n"
