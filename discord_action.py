@@ -6,6 +6,11 @@ from test import analyze_stock
 
 MODE = os.getenv("MODE", "analysis")
 CODE = os.getenv("STOCK_CODE", "").strip().upper()
+
+# 6501 → 6501.T のように日本株コードを自動変換
+if len(CODE) == 4 and CODE.isdigit():
+    CODE = CODE + ".T"
+
 CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID", "")
 BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 
