@@ -1,6 +1,5 @@
 import yfinance as yf
 from ta.momentum import RSIIndicator
-from alerts import send_notification
 from ta.trend import MACD
 from ta.volatility import BollingerBands
 
