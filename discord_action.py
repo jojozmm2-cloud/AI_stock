@@ -52,7 +52,12 @@ def main():
 
     try:
         result = analyze_stock(CODE)
-
+        if "株価データを取得できませんでした" in result:
+            send_discord(
+                f"❌ `{CODE}` の株価データを取得できませんでした。\n"
+                "銘柄コードを確認して、もう一度試してください。"
+            )
+            return
         # AI分析
         if MODE == "ai_analysis":
             from news import get_stock_news
