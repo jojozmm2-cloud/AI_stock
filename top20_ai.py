@@ -247,3 +247,7 @@ if __name__ == "__main__":
     else:
         print()
         print("❌ Discord送信に失敗しました")
+
+        raise RuntimeError(
+            "Discordへのランキング送信に失敗しました"
+        )
