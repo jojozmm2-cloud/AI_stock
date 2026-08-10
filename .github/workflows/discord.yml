@@ -10,14 +10,15 @@ on:
 
       channel_id:
         description: "結果を送るDiscordチャンネルID"
-        required: false
+        required: true
         type: string
 
       mode:
         description: "analysis または ai_analysis"
-        required: false
+        required: true
         default: "analysis"
         type: string
+
       portfolio_json:
         description: "保有株データ"
         required: false
@@ -45,7 +46,7 @@ jobs:
 
       - name: Discordから指定された株を分析
         env:
-          TOCK_CODE: ${{ inputs.stock_code }}
+          STOCK_CODE: ${{ inputs.stock_code }}
           DISCORD_CHANNEL_ID: ${{ inputs.channel_id }}
           MODE: ${{ inputs.mode }}
           PORTFOLIO_JSON: ${{ inputs.portfolio_json }}
