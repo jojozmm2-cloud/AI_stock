@@ -1,11 +1,14 @@
 import os
+import json
 import requests
+import yfinance as yf
 
 from test import analyze_stock
 
 
 MODE = os.getenv("MODE", "analysis")
 CODE = os.getenv("STOCK_CODE", "").strip().upper()
+PORTFOLIO_JSON = os.getenv("PORTFOLIO_JSON", "[]")
 
 # 6501 → 6501.T のように日本株コードを自動変換
 if len(CODE) == 4 and CODE.isdigit():
@@ -39,11 +42,79 @@ def send_discord(message):
 
         response.raise_for_status()
 
+def analyze_portfolio():
+    portfolio = json.loads(PORTFOLIO_JSON)
+
+    if not portfolio:
+        return "📭 保有株が登録されていません。"
+
+    lines = []
+    total_cost = 0
+    total_value = 0
+
+    for item in portfolio:
+        code = str(item["code"]).strip().upper()
+        shares = float(item["shares"])
+        avg_price = float(item["avg_price"])
+
+        ticker = yf.Ticker(code)
+        data = ticker.history(period="5d")
+
+        if data.empty:
+            lines.append(
+                f"⚠️ **{code}**\n"
+                "現在価格を取得できませんでした。"
+            )
+            continue
+
+        current_price = float(data["Close"].iloc[-1])
+
+        cost = shares * avg_price
+        value = shares * current_price
+        profit = value - cost
+        profit_rate = (
+            profit / cost * 100
+            if cost > 0
+            else 0
+        )
+
+        total_cost += cost
+        total_value += value
+
+        mark = "🟢" if profit >= 0 else "🔴"
+
+        lines.append(
+            f"🏷️ **{code}**\n"
+            f"株数：{shares}\n"
+            f"平均取得単価：{avg_price:,.2f}円\n"
+            f"現在値：{current_price:,.2f}円\n"
+            f"評価額：{value:,.0f}円\n"
+            f"{mark} 含み損益：{profit:+,.0f}円 "
+            f"({profit_rate:+.2f}%)"
+        )
+
+    total_profit = total_value - total_cost
+
+    total_rate = (
+        total_profit / total_cost * 100
+        if total_cost > 0
+        else 0
+    )
+
+    total_mark = "🟢" if total_profit >= 0 else "🔴"
+
+    return (
+        "💼 **保有株分析**\n\n"
+        + "\n\n".join(lines)
+        + "\n\n━━━━━━━━━━\n"
+        + f"💰 取得総額：{total_cost:,.0f}円\n"
+        + f"📊 現在評価額：{total_value:,.0f}円\n"
+        + f"{total_mark} 合計損益："
+        + f"{total_profit:+,.0f}円 "
+        + f"({total_rate:+.2f}%)"
+    )
 
 def main():
-    if not CODE:
-        raise RuntimeError("銘柄コードがありません")
-
     if not CHANNEL_ID:
         raise RuntimeError("DiscordチャンネルIDがありません")
 
@@ -51,6 +122,15 @@ def main():
         raise RuntimeError("Discord Bot Tokenがありません")
 
     try:
+        # 保有株分析
+        if MODE == "portfolio":
+            message = analyze_portfolio()
+            send_discord(message)
+            return
+
+        if not CODE:
+            raise RuntimeError("銘柄コードがありません")
+
         result = analyze_stock(CODE)
         if "株価データを取得できませんでした" in result:
             send_discord(
