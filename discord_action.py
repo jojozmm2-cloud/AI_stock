@@ -10,6 +10,10 @@ MODE = os.getenv("MODE", "analysis")
 CODE = os.getenv("STOCK_CODE", "").strip().upper()
 PORTFOLIO_JSON = os.getenv("PORTFOLIO_JSON", "[]")
 
+REALIZED_PROFIT = float(
+    os.getenv("REALIZED_PROFIT", "0") or 0
+)
+
 # 6501 → 6501.T のように日本株コードを自動変換
 if len(CODE) == 4 and CODE.isdigit():
     CODE = CODE + ".T"
@@ -114,6 +118,67 @@ def analyze_portfolio():
         + f"({total_rate:+.2f}%)"
     )
 
+def analyze_profit_summary():
+    portfolio = json.loads(PORTFOLIO_JSON)
+
+    unrealized_profit = 0
+    total_cost = 0
+
+    for item in portfolio:
+        code = str(item["code"]).strip().upper()
+        shares = float(item["shares"])
+        avg_price = float(item["avg_price"])
+
+        ticker = yf.Ticker(code)
+        data = ticker.history(period="5d")
+
+        if data.empty:
+            continue
+
+        current_price = float(
+            data["Close"].iloc[-1]
+        )
+
+        cost = shares * avg_price
+        value = shares * current_price
+
+        total_cost += cost
+        unrealized_profit += value - cost
+
+    total_profit = (
+        unrealized_profit
+        + REALIZED_PROFIT
+    )
+
+    unrealized_mark = (
+        "🟢"
+        if unrealized_profit >= 0
+        else "🔴"
+    )
+
+    realized_mark = (
+        "🟢"
+        if REALIZED_PROFIT >= 0
+        else "🔴"
+    )
+
+    total_mark = (
+        "🟢"
+        if total_profit >= 0
+        else "🔴"
+    )
+
+    return (
+        "📊 **損益まとめ**\n\n"
+        f"{unrealized_mark} 含み損益："
+        f"{unrealized_profit:+,.0f}円\n"
+        f"{realized_mark} 実現損益："
+        f"{REALIZED_PROFIT:+,.0f}円\n"
+        "\n━━━━━━━━━━\n"
+        f"{total_mark} **トータル損益："
+        f"{total_profit:+,.0f}円**"
+    )
+
 def main():
     if not CHANNEL_ID:
         raise RuntimeError("DiscordチャンネルIDがありません")
@@ -122,9 +187,15 @@ def main():
         raise RuntimeError("Discord Bot Tokenがありません")
 
     try:
-        # 保有株分析
+    # 保有株分析
         if MODE == "portfolio":
             message = analyze_portfolio()
+            send_discord(message)
+            return
+
+        # 損益まとめ
+        if MODE == "profit_summary":
+            message = analyze_profit_summary()
             send_discord(message)
             return
 

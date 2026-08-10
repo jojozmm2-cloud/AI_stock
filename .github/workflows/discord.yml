@@ -25,6 +25,12 @@ on:
         default: "[]"
         type: string
 
+      realized_profit:
+        description: "実現損益"
+        required: false
+        default: "0"
+        type: string
+
 
 jobs:
   analyze:
@@ -50,6 +56,7 @@ jobs:
           DISCORD_CHANNEL_ID: ${{ inputs.channel_id }}
           MODE: ${{ inputs.mode }}
           PORTFOLIO_JSON: ${{ inputs.portfolio_json }}
+          REALIZED_PROFIT: ${{ inputs.realized_profit }}
 
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
