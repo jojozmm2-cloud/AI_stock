@@ -5,6 +5,7 @@ import yfinance as yf
 
 from test import analyze_stock
 from sbi_analysis import create_sbi_analysis_embed, get_sbi_trade_plan
+from sbi_candidates import create_sbi_candidates_embed, get_sbi_candidates
 
 
 MODE = os.getenv("MODE", "analysis")
@@ -217,6 +218,12 @@ def main():
 
             plan = get_sbi_trade_plan(CODE, SBI_CAPITAL)
             embed = create_sbi_analysis_embed(plan)
+            send_discord_embed(embed)
+            return
+
+        if MODE == "sbi_candidates":
+            candidates = get_sbi_candidates(SBI_CAPITAL)
+            embed = create_sbi_candidates_embed(candidates, SBI_CAPITAL)
             send_discord_embed(embed)
             return
 
