@@ -4,6 +4,7 @@ import requests
 import yfinance as yf
 
 from test import analyze_stock
+from sbi_analysis import create_sbi_analysis_embed, get_sbi_trade_plan
 
 
 MODE = os.getenv("MODE", "analysis")
@@ -13,6 +14,7 @@ PORTFOLIO_JSON = os.getenv("PORTFOLIO_JSON", "[]")
 REALIZED_PROFIT = float(
     os.getenv("REALIZED_PROFIT", "0") or 0
 )
+SBI_CAPITAL = os.getenv("SBI_CAPITAL", "0")
 
 # 6501 → 6501.T のように日本株コードを自動変換
 if len(CODE) == 4 and CODE.isdigit():
@@ -45,6 +47,27 @@ def send_discord(message):
         )
 
         response.raise_for_status()
+
+
+def send_discord_embed(embed):
+    url = (
+        f"https://discord.com/api/v10/"
+        f"channels/{CHANNEL_ID}/messages"
+    )
+
+    headers = {
+        "Authorization": f"Bot {BOT_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    response = requests.post(
+        url,
+        headers=headers,
+        json={"embeds": [embed]},
+        timeout=30
+    )
+
+    response.raise_for_status()
 
 def analyze_portfolio():
     portfolio = json.loads(PORTFOLIO_JSON)
@@ -187,6 +210,16 @@ def main():
         raise RuntimeError("Discord Bot Tokenがありません")
 
     try:
+        # SBI短期売買プラン
+        if MODE == "sbi_analysis":
+            if not CODE:
+                raise RuntimeError("銘柄コードがありません")
+
+            plan = get_sbi_trade_plan(CODE, SBI_CAPITAL)
+            embed = create_sbi_analysis_embed(plan)
+            send_discord_embed(embed)
+            return
+
     # 保有株分析
         if MODE == "portfolio":
             message = analyze_portfolio()
