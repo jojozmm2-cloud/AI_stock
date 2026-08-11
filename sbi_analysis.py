@@ -3,6 +3,7 @@ import math
 
 RISK_RATE = 0.01
 REWARD_RISK_RATIO = 2.0
+TAX_RATE = 0.20315
 SBI_BLUE = 0x1D5FA7
 
 
@@ -43,6 +44,9 @@ def calculate_trade_plan(capital, current_price, atr):
 
     investment = shares * current_price
     max_loss = shares * stop_distance
+    gross_profit = shares * target_distance
+    estimated_tax = gross_profit * TAX_RATE
+    net_profit = gross_profit - estimated_tax
 
     return {
         "capital": capital,
@@ -53,6 +57,9 @@ def calculate_trade_plan(capital, current_price, atr):
         "take_profit": current_price + target_distance,
         "stop_loss": max(current_price - stop_distance, 0),
         "max_loss": max_loss,
+        "gross_profit": gross_profit,
+        "estimated_tax": estimated_tax,
+        "net_profit": net_profit,
         "risk_budget": risk_budget,
         "risk_rate": (max_loss / capital * 100) if capital else 0,
         "take_profit_rate": target_distance / current_price * 100,
@@ -148,6 +155,15 @@ def create_sbi_analysis_embed(plan):
                 "inline": False
             },
             {
+                "name": "🧾 利確時の概算（特定口座）",
+                "value": (
+                    f"税引前利益：約{plan['gross_profit']:,.0f}円\n"
+                    f"概算税額（20.315%）：約{plan['estimated_tax']:,.0f}円\n"
+                    f"**税引後利益：約{plan['net_profit']:,.0f}円**"
+                ),
+                "inline": False
+            },
+            {
                 "name": "📊 計算根拠",
                 "value": (
                     f"14日ATR：{plan['atr']:,.2f}円\n"
@@ -167,6 +183,9 @@ def create_sbi_analysis_embed(plan):
             }
         ],
         "footer": {
-            "text": "目標価格は予測ではなく計算上の候補です。最終判断はご自身で行ってください"
+            "text": (
+                "税額は利益の20.315%で単純計算した概算です。"
+                "実際は口座内の年間損益により調整されます"
+            )
         }
     }
