@@ -47,6 +47,11 @@ def calculate_trade_plan(capital, current_price, atr):
     gross_profit = shares * target_distance
     estimated_tax = gross_profit * TAX_RATE
     net_profit = gross_profit - estimated_tax
+    after_tax_reward_ratio = (
+        net_profit / max_loss
+        if max_loss > 0
+        else 0
+    )
 
     return {
         "capital": capital,
@@ -60,6 +65,7 @@ def calculate_trade_plan(capital, current_price, atr):
         "gross_profit": gross_profit,
         "estimated_tax": estimated_tax,
         "net_profit": net_profit,
+        "after_tax_reward_ratio": after_tax_reward_ratio,
         "risk_budget": risk_budget,
         "risk_rate": (max_loss / capital * 100) if capital else 0,
         "take_profit_rate": target_distance / current_price * 100,
@@ -168,7 +174,9 @@ def create_sbi_analysis_embed(plan):
                 "value": (
                     f"14日ATR：{plan['atr']:,.2f}円\n"
                     "リスク上限：運用資金の1%\n"
-                    "リスク・リワード：1 : 2"
+                    "税引前リスク・リワード：1 : 2.00\n"
+                    f"税引後リスク・リワード："
+                    f"1 : {plan['after_tax_reward_ratio']:.2f}"
                 ),
                 "inline": False
             },
