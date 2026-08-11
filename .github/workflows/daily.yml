@@ -1,12 +1,7 @@
 name: Daily AI Stock Ranking
 
 on:
-  schedule:
-    # 日本時間 毎朝8:00
-    # GitHub ActionsのcronはUTCなので 23:00 UTC
-    - cron: "0 23 * * *"
-
-  # 手動テスト用
+  # 手動実行のみ（自動ランキングは停止中）
   workflow_dispatch:
 
 jobs:
