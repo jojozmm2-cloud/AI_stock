@@ -7,6 +7,28 @@ import yfinance as yf
 SBI_BLUE = 0x1D5FA7
 MIN_AVERAGE_TURNOVER = 100_000_000
 
+SBI_NAMES = {
+    "7013.T": "IHI", "7259.T": "アイシン", "8304.T": "あおぞら銀行",
+    "3407.T": "旭化成", "2502.T": "アサヒグループHD", "7936.T": "アシックス",
+    "2802.T": "味の素", "4503.T": "アステラス製薬", "6857.T": "アドバンテスト",
+    "6754.T": "アンリツ", "8267.T": "イオン", "7202.T": "いすゞ自動車",
+    "5019.T": "出光興産", "8001.T": "伊藤忠商事", "4062.T": "イビデン",
+    "8088.T": "岩谷産業", "1605.T": "INPEX", "5201.T": "AGC",
+    "9603.T": "エイチ・アイ・エス", "4180.T": "Appier Group",
+    "9202.T": "ANAホールディングス", "4523.T": "エーザイ", "6273.T": "SMC",
+    "9143.T": "SGホールディングス", "8303.T": "SBI新生銀行",
+    "8473.T": "SBIホールディングス", "9432.T": "NTT",
+    "5020.T": "ENEOSホールディングス", "6361.T": "荏原製作所",
+    "8725.T": "MS&AD", "3861.T": "王子ホールディングス", "9532.T": "大阪瓦斯",
+    "1802.T": "大林組", "4684.T": "オービック", "4528.T": "小野薬品工業",
+    "4661.T": "オリエンタルランド", "8591.T": "オリックス",
+    "7733.T": "オリンパス", "4452.T": "花王", "6952.T": "カシオ計算機",
+    "1812.T": "鹿島建設", "9107.T": "川崎汽船", "7012.T": "川崎重工業",
+    "9503.T": "関西電力", "6861.T": "キーエンス", "7751.T": "キヤノン",
+    "9508.T": "九州電力", "6971.T": "京セラ", "2503.T": "キリンHD",
+    "6326.T": "クボタ",
+}
+
 
 def load_symbols():
     path = Path(__file__).with_name("sbi_symbols.txt")
@@ -69,6 +91,29 @@ def score_candidate(data, capital):
     score += 25 if 45 <= rsi <= 65 else (12 if 35 <= rsi <= 70 else 0)
     score += 15 if volume_ratio >= 1.2 else (8 if volume_ratio >= 0.9 else 0)
 
+    reasons = []
+    if price > ma20 and ma5 > ma20:
+        reasons.append("上昇トレンド")
+    elif price > ma20:
+        reasons.append("20日線より上")
+    if 45 <= rsi <= 65:
+        reasons.append("RSIが適温")
+    elif rsi > 70:
+        reasons.append("RSIは過熱気味")
+    if volume_ratio >= 1.2:
+        reasons.append("出来高が増加")
+    if 0 < change_5d <= 8:
+        reasons.append("5日間で上昇")
+
+    if rsi > 70:
+        status = "🔴 過熱注意"
+    elif score >= 85:
+        status = "🟢 条件良好"
+    elif score >= 70:
+        status = "🔵 要チェック"
+    else:
+        status = "🟠 慎重に確認"
+
     return {
         "price": price,
         "score": score,
@@ -76,6 +121,8 @@ def score_candidate(data, capital):
         "change_5d": change_5d,
         "volume_ratio": volume_ratio,
         "affordable_shares": int(capital // price),
+        "reasons": reasons,
+        "status": status,
     }
 
 
@@ -120,14 +167,18 @@ def create_sbi_candidates_embed(candidates, capital):
     fields = []
     for index, item in enumerate(candidates, start=1):
         code = item["code"].replace(".T", "")
+        name = SBI_NAMES.get(item["code"], "会社名未登録")
+        reason_text = "・".join(item["reasons"]) or "数値条件の総合判定"
         fields.append({
-            "name": f"{index}. {code}  |  判定 {item['score']}点",
+            "name": f"{index}. {name}（{code}）｜{item['status']}",
             "value": (
-                f"参考価格：{item['price']:,.2f}円　"
-                f"購入可能：最大{item['affordable_shares']}株\n"
+                f"**候補理由：{reason_text}**\n"
+                f"参考価格：{item['price']:,.2f}円　判定：{item['score']}点\n"
                 f"RSI：{item['rsi']:.1f}　"
                 f"5日騰落：{item['change_5d']:+.2f}%　"
                 f"出来高倍率：{item['volume_ratio']:.2f}倍\n"
+                f"資金だけで見た上限：{item['affordable_shares']}株"
+                "（推奨株数ではありません）\n"
                 f"詳しく見る：`/sbi 分析 code:{code}`"
             ),
             "inline": False,
