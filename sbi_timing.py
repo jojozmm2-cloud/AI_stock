@@ -227,6 +227,7 @@ def get_sbi_timing(code, capital, portfolio_json="[]", watchlist_json="[]"):
         "deadline": deadline,
         "execution": execution,
         "market_open": market_open,
+        "data_date": latest_day.isoformat(),
         "data_time": latest_timestamp.strftime("%m/%d %H:%M"),
     }
 

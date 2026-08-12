@@ -8,6 +8,7 @@ from sbi_analysis import create_sbi_analysis_embed, get_sbi_trade_plan
 from sbi_candidates import create_sbi_candidates_embed, get_sbi_candidates
 from sbi_watchlist import create_watchlist_embed, get_watchlist_status
 from sbi_timing import create_sbi_timing_embed, get_sbi_timing
+from sbi_auto_monitor import get_auto_monitor_embeds
 
 
 MODE = os.getenv("MODE", "analysis")
@@ -72,6 +73,26 @@ def send_discord_embed(embed):
     )
 
     response.raise_for_status()
+
+
+def send_discord_embeds(embeds):
+    url = (
+        f"https://discord.com/api/v10/"
+        f"channels/{CHANNEL_ID}/messages"
+    )
+    headers = {
+        "Authorization": f"Bot {BOT_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    for index in range(0, len(embeds), 10):
+        response = requests.post(
+            url,
+            headers=headers,
+            json={"embeds": embeds[index:index + 10]},
+            timeout=30
+        )
+        response.raise_for_status()
 
 def analyze_portfolio():
     portfolio = json.loads(PORTFOLIO_JSON)
@@ -247,6 +268,18 @@ def main():
             )
             embed = create_sbi_timing_embed(result)
             send_discord_embed(embed)
+            return
+
+        if MODE == "sbi_auto_monitor":
+            embeds = get_auto_monitor_embeds(
+                SBI_CAPITAL,
+                PORTFOLIO_JSON,
+                SBI_WATCHLIST_JSON,
+            )
+            if embeds:
+                send_discord_embeds(embeds)
+            else:
+                print("自動監視: 送信対象なし")
             return
 
     # 保有株分析
