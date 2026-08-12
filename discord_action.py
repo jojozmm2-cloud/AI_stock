@@ -7,6 +7,7 @@ from test import analyze_stock
 from sbi_analysis import create_sbi_analysis_embed, get_sbi_trade_plan
 from sbi_candidates import create_sbi_candidates_embed, get_sbi_candidates
 from sbi_watchlist import create_watchlist_embed, get_watchlist_status
+from sbi_timing import create_sbi_timing_embed, get_sbi_timing
 
 
 MODE = os.getenv("MODE", "analysis")
@@ -232,6 +233,19 @@ def main():
         if MODE == "sbi_watchlist":
             results = get_watchlist_status(SBI_WATCHLIST_JSON)
             embed = create_watchlist_embed(results)
+            send_discord_embed(embed)
+            return
+
+        if MODE == "sbi_timing":
+            if not CODE:
+                raise RuntimeError("銘柄コードがありません")
+            result = get_sbi_timing(
+                CODE,
+                SBI_CAPITAL,
+                PORTFOLIO_JSON,
+                SBI_WATCHLIST_JSON,
+            )
+            embed = create_sbi_timing_embed(result)
             send_discord_embed(embed)
             return
 
