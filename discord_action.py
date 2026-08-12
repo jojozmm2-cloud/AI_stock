@@ -6,6 +6,7 @@ import yfinance as yf
 from test import analyze_stock
 from sbi_analysis import create_sbi_analysis_embed, get_sbi_trade_plan
 from sbi_candidates import create_sbi_candidates_embed, get_sbi_candidates
+from sbi_watchlist import create_watchlist_embed, get_watchlist_status
 
 
 MODE = os.getenv("MODE", "analysis")
@@ -16,6 +17,7 @@ REALIZED_PROFIT = float(
     os.getenv("REALIZED_PROFIT", "0") or 0
 )
 SBI_CAPITAL = os.getenv("SBI_CAPITAL", "0")
+SBI_WATCHLIST_JSON = os.getenv("SBI_WATCHLIST_JSON", "[]")
 
 # 6501 → 6501.T のように日本株コードを自動変換
 if len(CODE) == 4 and CODE.isdigit():
@@ -224,6 +226,12 @@ def main():
         if MODE == "sbi_candidates":
             candidates = get_sbi_candidates(SBI_CAPITAL)
             embed = create_sbi_candidates_embed(candidates, SBI_CAPITAL)
+            send_discord_embed(embed)
+            return
+
+        if MODE == "sbi_watchlist":
+            results = get_watchlist_status(SBI_WATCHLIST_JSON)
+            embed = create_watchlist_embed(results)
             send_discord_embed(embed)
             return
 

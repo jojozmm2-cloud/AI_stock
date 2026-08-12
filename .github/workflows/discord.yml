@@ -37,6 +37,12 @@ on:
         default: "0"
         type: string
 
+      sbi_watchlist_json:
+        description: "SBI監視銘柄データ"
+        required: false
+        default: "[]"
+        type: string
+
 
 jobs:
   analyze:
@@ -64,6 +70,7 @@ jobs:
           PORTFOLIO_JSON: ${{ inputs.portfolio_json }}
           REALIZED_PROFIT: ${{ inputs.realized_profit }}
           SBI_CAPITAL: ${{ inputs.sbi_capital }}
+          SBI_WATCHLIST_JSON: ${{ inputs.sbi_watchlist_json }}
 
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
