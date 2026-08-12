@@ -1,5 +1,7 @@
 import math
 
+from sbi_names import SBI_NAMES
+
 
 RISK_RATE = 0.01
 REWARD_RISK_RATIO = 2.0
@@ -42,6 +44,11 @@ def calculate_trade_plan(capital, current_price, atr):
     shares_by_risk = math.floor(risk_budget / stop_distance)
     shares = max(min(shares_by_capital, shares_by_risk), 0)
 
+    if shares_by_risk <= shares_by_capital:
+        limiting_factor = "損失上限（運用資金の1%）"
+    else:
+        limiting_factor = "運用資金"
+
     investment = shares * current_price
     max_loss = shares * stop_distance
     gross_profit = shares * target_distance
@@ -58,6 +65,9 @@ def calculate_trade_plan(capital, current_price, atr):
         "current_price": current_price,
         "atr": atr,
         "shares": shares,
+        "shares_by_capital": shares_by_capital,
+        "shares_by_risk": shares_by_risk,
+        "limiting_factor": limiting_factor,
         "investment": investment,
         "take_profit": current_price + target_distance,
         "stop_loss": max(current_price - stop_distance, 0),
@@ -103,6 +113,7 @@ def get_sbi_trade_plan(code, capital):
 
 def create_sbi_analysis_embed(plan):
     shares = plan["shares"]
+    company_name = SBI_NAMES.get(plan["code"], "会社名未登録")
 
     if shares > 0:
         status = "🟢 資金・リスク条件内"
@@ -116,8 +127,11 @@ def create_sbi_analysis_embed(plan):
         color = 0xD9822B
 
     return {
-        "title": f"SBI短期売買プラン | {plan['code']}",
-        "description": status,
+        "title": f"SBI短期売買プラン｜{company_name}（{plan['code'].replace('.T', '')}）",
+        "description": (
+            f"{status}\n"
+            "候補一覧の評価とは別に、資金と損失上限から株数を計算しています。"
+        ),
         "color": color,
         "fields": [
             {
@@ -133,6 +147,16 @@ def create_sbi_analysis_embed(plan):
             {
                 "name": "🛒 購入候補",
                 "value": f"{shares_text}\n{investment_text}",
+                "inline": False
+            },
+            {
+                "name": "🧮 株数の決まり方",
+                "value": (
+                    f"資金だけで見た上限：{plan['shares_by_capital']}株\n"
+                    f"損失上限から見た上限：{plan['shares_by_risk']}株\n"
+                    f"**今回は「{plan['limiting_factor']}」を優先して"
+                    f"{shares}株にしています。**"
+                ),
                 "inline": False
             },
             {
@@ -185,7 +209,8 @@ def create_sbi_analysis_embed(plan):
                 "value": (
                     "表示価格で即時約定するわけではありません。\n"
                     "注文時刻により、前場始値・後場始値・後場引け・"
-                    "翌営業日前場始値のいずれかで約定します。"
+                    "翌営業日前場始値のいずれかで約定します。\n"
+                    "**注文直前に価格が動いていたら、もう一度 `/sbi 分析` を実行してください。**"
                 ),
                 "inline": False
             }
