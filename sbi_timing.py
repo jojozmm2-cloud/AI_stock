@@ -78,6 +78,57 @@ def decide_sell(current, vwap, momentum, take_profit, stop_loss):
     return "👀 保有継続", "利確・損切り候補には未到達です"
 
 
+def make_action_comment(result):
+    decision = result["decision"]
+
+    if result["action"] == "buy":
+        if "次の注文枠で検討" in decision:
+            if result["market_open"]:
+                return (
+                    "条件は比較的そろっています。"
+                    f"**{result['shares']}株を上限候補に、次のS株注文枠で買いを検討できる状態**です。"
+                    "締切前に価格が大きく動いた場合は、もう一度確認してください。"
+                )
+            return (
+                "本日の終了時点では、買いを検討できる数値条件です。"
+                "ただし市場終了後の判定なので、**翌営業日の注文前にもう一度実行してから判断**してください。"
+            )
+        if "追いかけず待つ" in decision:
+            return (
+                "銘柄自体は候補ですが、今は高値を追いかける場面ではありません。"
+                "**今回は買わず、過熱が落ち着くまで待つ候補**です。"
+            )
+        if "反転を待つ" in decision:
+            return (
+                "今は短期の流れが弱いため、買い急がない方が安全寄りです。"
+                "**VWAP回復や5分足の反転を確認してから再判断**します。"
+            )
+        return (
+            "買い条件がまだ十分にそろっていません。"
+            "**今回は様子見し、次の確認時刻に再判断**する候補です。"
+        )
+
+    if "利確" in decision:
+        return (
+            "登録した利確候補に到達しています。"
+            "**次のS株注文締切までに売却を検討できる状態**ですが、約定価格は表示値と異なります。"
+        )
+    if "損切り" in decision:
+        return (
+            "登録した損切り候補に到達しています。"
+            "**次の締切までにSBI証券を確認し、損失拡大を避ける判断を優先**してください。"
+        )
+    if "慎重" in decision:
+        return (
+            "利確・損切り候補には未到達ですが、短期の勢いが弱まっています。"
+            "**保有継続だけでなく、早めの売却も比較する状態**です。"
+        )
+    return (
+        "現時点では利確・損切り候補に未到達です。"
+        "**保有継続候補ですが、次の確認時刻にも再判定**します。"
+    )
+
+
 def get_sbi_timing(code, capital, portfolio_json="[]", watchlist_json="[]"):
     import yfinance as yf
 
@@ -140,7 +191,16 @@ def get_sbi_timing(code, capital, portfolio_json="[]", watchlist_json="[]"):
         net_profit = 0
         action = "buy"
 
-    deadline, execution = next_sbi_window()
+    now = datetime.now(JST)
+    deadline, execution = next_sbi_window(now)
+    current_time = now.timetz().replace(tzinfo=None)
+    market_open = (
+        now.weekday() < 5
+        and (
+            time(9, 0) <= current_time <= time(11, 30)
+            or time(12, 30) <= current_time <= time(15, 30)
+        )
+    )
     latest_timestamp = intraday.index[-1]
 
     return {
@@ -166,6 +226,7 @@ def get_sbi_timing(code, capital, portfolio_json="[]", watchlist_json="[]"):
         "stop_loss": stop_loss,
         "deadline": deadline,
         "execution": execution,
+        "market_open": market_open,
         "data_time": latest_timestamp.strftime("%m/%d %H:%M"),
     }
 
@@ -175,10 +236,16 @@ def create_sbi_timing_embed(result):
     name = SBI_NAMES.get(result["code"], "会社名未登録")
     action_name = "売却判断" if result["action"] == "sell" else "購入判断"
 
+    action_comment = make_action_comment(result)
     fields = [
         {
             "name": "📌 今回の判断",
             "value": f"**{result['decision']}**\n{result['reason']}",
+            "inline": False,
+        },
+        {
+            "name": "💬 アシストコメント",
+            "value": action_comment,
             "inline": False,
         },
         {
