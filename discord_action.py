@@ -251,6 +251,20 @@ def main():
             send_discord_embed(embed)
             return
 
+        if MODE == "sbi_candidates_under_1000":
+            candidates = get_sbi_candidates(
+                SBI_CAPITAL,
+                max_price=1000,
+                symbols_filename="sbi_under_1000_symbols.txt",
+            )
+            embed = create_sbi_candidates_embed(
+                candidates,
+                SBI_CAPITAL,
+                max_price=1000,
+            )
+            send_discord_embed(embed)
+            return
+
         if MODE == "sbi_watchlist":
             results = get_watchlist_status(SBI_WATCHLIST_JSON)
             embed = create_watchlist_embed(results)

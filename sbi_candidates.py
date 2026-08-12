@@ -9,8 +9,8 @@ from sbi_names import SBI_NAMES
 SBI_BLUE = 0x1D5FA7
 MIN_AVERAGE_TURNOVER = 100_000_000
 
-def load_symbols():
-    path = Path(__file__).with_name("sbi_symbols.txt")
+def load_symbols(filename="sbi_symbols.txt"):
+    path = Path(__file__).with_name(filename)
     return [
         line.strip().upper()
         for line in path.read_text(encoding="utf-8").splitlines()
@@ -33,7 +33,7 @@ def calculate_rsi(close, period=14):
     return float(rsi.iloc[-1])
 
 
-def score_candidate(data, capital):
+def score_candidate(data, capital, max_price=None):
     data = data.dropna(subset=["Close", "Volume"])
     if len(data) < 25:
         return None
@@ -43,6 +43,8 @@ def score_candidate(data, capital):
     price = float(close.iloc[-1])
 
     if price <= 0 or price > capital:
+        return None
+    if max_price is not None and price > float(max_price):
         return None
 
     average_turnover = float((close * volume).tail(20).mean())
@@ -105,12 +107,17 @@ def score_candidate(data, capital):
     }
 
 
-def get_sbi_candidates(capital, limit=5):
+def get_sbi_candidates(
+    capital,
+    limit=5,
+    max_price=None,
+    symbols_filename="sbi_symbols.txt",
+):
     capital = int(float(capital))
     if capital <= 0:
         raise ValueError("運用資金が設定されていません")
 
-    symbols = load_symbols()
+    symbols = load_symbols(symbols_filename)
     downloaded = yf.download(
         symbols,
         period="3mo",
@@ -124,7 +131,7 @@ def get_sbi_candidates(capital, limit=5):
     for symbol in symbols:
         try:
             data = downloaded[symbol] if len(symbols) > 1 else downloaded
-            candidate = score_candidate(data, capital)
+            candidate = score_candidate(data, capital, max_price=max_price)
             if candidate:
                 candidate["code"] = symbol
                 candidates.append(candidate)
@@ -142,7 +149,7 @@ def get_sbi_candidates(capital, limit=5):
     )[:limit]
 
 
-def create_sbi_candidates_embed(candidates, capital):
+def create_sbi_candidates_embed(candidates, capital, max_price=None):
     fields = []
     for index, item in enumerate(candidates, start=1):
         code = item["code"].replace(".T", "")
@@ -170,10 +177,21 @@ def create_sbi_candidates_embed(candidates, capital):
             "inline": False,
         })
 
+    price_condition = (
+        f"・1株 **{float(max_price):,.0f}円以下**"
+        if max_price is not None
+        else ""
+    )
+
     return {
-        "title": "🔎 SBI短期売買 候補一覧",
+        "title": (
+            "🧪 SBI 1,000円以下候補（テスト）"
+            if max_price == 1000
+            else "🔎 SBI短期売買 候補一覧"
+        ),
         "description": (
-            f"運用資金 **{int(float(capital)):,.0f}円** で1株以上買える銘柄を、"
+            f"運用資金 **{int(float(capital)):,.0f}円** で1株以上買える銘柄"
+            f"{price_condition}を、"
             "トレンド・RSI・出来高から機械的に順位付けしました。"
         ),
         "color": SBI_BLUE,
@@ -181,7 +199,7 @@ def create_sbi_candidates_embed(candidates, capital):
         "footer": {
             "text": (
                 "買い推奨ではありません。S株対象可否と注文条件は"
-                "SBI証券の注文画面で最終確認してください。"
+                "SBI証券の注文画面で最終確認してください。テスト用コマンドです。"
             )
         },
     }
