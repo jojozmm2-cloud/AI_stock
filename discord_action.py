@@ -299,6 +299,13 @@ def main():
             send_discord_embed(create_tdnet_test_embed(disclosures))
             return
 
+        if MODE == "sbi_tdnet_event_test":
+            from tdnet import create_tdnet_event_test_embed, run_tdnet_event_test
+
+            result = run_tdnet_event_test(days=7)
+            send_discord_embed(create_tdnet_event_test_embed(result))
+            return
+
         # SBI短期売買プラン
         if MODE == "sbi_analysis":
             if not CODE:

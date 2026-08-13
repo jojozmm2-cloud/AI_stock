@@ -3,7 +3,7 @@ from datetime import date
 
 from tdnet import (
     analyze_disclosure_document, classify_disclosure, create_tdnet_test_embed,
-    parse_tdnet_html, summarize_tdnet,
+    create_tdnet_event_test_embed, parse_tdnet_html, summarize_tdnet,
 )
 
 
@@ -45,6 +45,12 @@ class TdnetTest(unittest.TestCase):
         self.assertEqual(neutral["sentiment"], "neutral")
         positive = analyze_disclosure_document(item, "本提携に伴い業績予想を上方修正します。")
         self.assertEqual(positive["sentiment"], "positive")
+
+    def test_event_report_marks_small_negative_sample_as_unproven(self):
+        embed = create_tdnet_event_test_embed({
+            "evaluated": 2, "wins": 2, "average_excess": 1.0, "events": [],
+        })
+        self.assertIn("改善を確認できず", embed["description"])
 
 
 if __name__ == "__main__":
