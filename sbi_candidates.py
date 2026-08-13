@@ -40,8 +40,8 @@ def load_symbols(filename="sbi_symbols.txt"):
     ]
 
 
-def load_prime_symbols():
-    """JPXの最新一覧からプライム内国普通株を取得する。失敗時は固定リストを使う。"""
+def load_prime_universe():
+    """JPXの最新一覧からプライム内国普通株と業種情報を取得する。"""
     try:
         request = Request(JPX_LIST_URL, headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(request, timeout=30) as response:
@@ -49,21 +49,39 @@ def load_prime_symbols():
         market_column = next(column for column in listed.columns if "市場・商品区分" in str(column))
         code_column = next(column for column in listed.columns if str(column).strip() == "コード")
         name_column = next(column for column in listed.columns if "銘柄名" in str(column))
+        sector_column = next(
+            (column for column in listed.columns if "33業種区分" in str(column)),
+            None,
+        )
         prime = listed[listed[market_column].astype(str).str.contains("プライム（内国株式）")]
         symbols = []
-        names = {}
+        metadata = {}
         for _, row in prime.iterrows():
             code = str(row[code_column]).strip()
             if code.isdigit() and len(code) == 4:
                 symbol = f"{code}.T"
                 symbols.append(symbol)
-                names[symbol] = str(row[name_column]).strip()
+                metadata[symbol] = {
+                    "name": str(row[name_column]).strip(),
+                    "sector": (
+                        str(row[sector_column]).strip()
+                        if sector_column is not None else "不明"
+                    ),
+                }
         if not symbols:
             raise ValueError("プライム銘柄を取得できませんでした")
-        return symbols, names
+        return symbols, metadata
     except (OSError, StopIteration, TypeError, ValueError, URLError) as error:
         print(f"JPX銘柄一覧の取得に失敗。固定リストを使用します: {error}")
         return load_symbols(), {}
+
+
+def load_prime_symbols():
+    symbols, metadata = load_prime_universe()
+    return symbols, {
+        symbol: item.get("name", "会社名未登録")
+        for symbol, item in metadata.items()
+    }
 
 
 def calculate_rsi(close, period=14):

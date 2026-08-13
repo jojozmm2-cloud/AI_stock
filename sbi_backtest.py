@@ -5,7 +5,7 @@ import pandas as pd
 from sbi_candidates import (
     MARKET_BENCHMARKS, MAX_LIQUID_UNIVERSE, RISK_RATE, TAX_RATE,
     average_turnover, download_batches, evaluate_market_data,
-    load_prime_symbols, score_candidate,
+    load_prime_universe, score_candidate,
 )
 
 
@@ -13,6 +13,57 @@ STOP_MULTIPLES = (1.0, 1.25, 1.5)
 REWARD_MULTIPLES = (1.5, 2.0, 2.5)
 HOLDING_DAYS = (5, 10, 15)
 SLIPPAGES = (0.003, 0.005, 0.008)
+
+
+def period_return(close, days):
+    if len(close) <= days:
+        return None
+    return float((close.iloc[-1] / close.iloc[-days - 1] - 1) * 100)
+
+
+def relative_signal(data, market_data, sector_return_20, strategy):
+    clean = data.dropna(subset=["Close", "High", "Low", "Volume"])
+    market = market_data.dropna(subset=["Close"])
+    if len(clean) < 65 or len(market) < 21:
+        return None
+    close = clean["Close"].astype(float)
+    market_close = market["Close"].astype(float)
+    ret5, ret20, ret60 = (period_return(close, days) for days in (5, 20, 60))
+    market20 = period_return(market_close, 20)
+    if None in (ret5, ret20, ret60, market20):
+        return None
+    relative_market = ret20 - market20
+    relative_sector = ret20 - sector_return_20
+    ma20 = float(close.tail(20).mean())
+    price = float(close.iloc[-1])
+    delta = close.diff()
+    gains = delta.clip(lower=0).tail(14).mean()
+    losses = (-delta.clip(upper=0)).tail(14).mean()
+    rsi = 100 if losses == 0 else float(100 - 100 / (1 + gains / losses))
+    if strategy == "momentum":
+        accepted = (
+            relative_market >= 2 and relative_sector >= 1
+            and 1 <= ret5 <= 6 and price > ma20 and 48 <= rsi <= 68
+        )
+        score = relative_market + relative_sector + ret20 * 0.25
+    elif strategy == "pullback":
+        market60 = period_return(market_close, 60)
+        if market60 is None:
+            return None
+        accepted = (
+            ret60 - market60 >= 4 and relative_sector >= 0
+            and -3 <= ret5 <= 1 and price >= ma20 * 0.98 and 38 <= rsi <= 55
+        )
+        score = (ret60 - market60) + relative_sector - abs(ret5) * 0.25
+    else:
+        raise ValueError(f"未知の戦略: {strategy}")
+    if not accepted:
+        return None
+    return {
+        "score": score, "relative_market": relative_market,
+        "relative_sector": relative_sector, "ret5": ret5,
+        "ret20": ret20, "ret60": ret60,
+    }
 
 
 def evaluate_trade(future, entry_price, base_risk, shares, stop_multiple=1.0,
@@ -99,7 +150,7 @@ def test_parameters(signals, downloaded, capital, params):
 def run_backtest(capital=100_000, months=12):
     import yfinance as yf
     capital = int(float(capital))
-    symbols, _ = load_prime_symbols()
+    symbols, _ = load_prime_universe()
     downloaded = download_batches(symbols, period="15mo")
     liquid = sorted(downloaded, key=lambda s: average_turnover(downloaded[s]), reverse=True)[:MAX_LIQUID_UNIVERSE]
     benchmarks = {}

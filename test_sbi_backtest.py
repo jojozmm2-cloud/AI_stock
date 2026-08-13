@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from sbi_backtest import evaluate_trade
+from sbi_backtest import evaluate_trade, relative_signal
 
 
 class SbiBacktestTest(unittest.TestCase):
@@ -21,6 +21,22 @@ class SbiBacktestTest(unittest.TestCase):
         self.assertEqual(result["outcome"], "win")
         self.assertGreater(result["pnl"], 15)
         self.assertLess(result["pnl"], 20)
+
+    def test_relative_momentum_requires_market_outperformance(self):
+        stock_close = [100]
+        for index in range(1, 70):
+            stock_close.append(stock_close[-1] + (1.5 if index % 2 else -1.0))
+        market_close = [100 + index * 0.1 for index in range(70)]
+        stock = pd.DataFrame({
+            "Close": stock_close,
+            "High": [value + 1 for value in stock_close],
+            "Low": [value - 1 for value in stock_close],
+            "Volume": [1_000_000] * 70,
+        })
+        market = pd.DataFrame({"Close": market_close})
+        result = relative_signal(stock, market, sector_return_20=1, strategy="momentum")
+        self.assertIsNotNone(result)
+        self.assertGreater(result["relative_market"], 2)
 
 
 if __name__ == "__main__":
