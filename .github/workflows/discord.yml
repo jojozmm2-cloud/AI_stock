@@ -31,6 +31,18 @@ on:
         default: "0"
         type: string
 
+      sbi_capital:
+        description: "SBI短期売買の運用資金"
+        required: false
+        default: "0"
+        type: string
+
+      sbi_watchlist_json:
+        description: "SBI監視銘柄データ"
+        required: false
+        default: "[]"
+        type: string
+
 
 jobs:
   analyze:
@@ -48,7 +60,7 @@ jobs:
       - name: Pythonライブラリをインストール
         run: |
           python -m pip install --upgrade pip
-          pip install yfinance pandas ta requests feedparser openai python-dotenv
+          pip install yfinance pandas xlrd ta requests feedparser openai python-dotenv
 
       - name: Discordから指定された株を分析
         env:
@@ -57,6 +69,8 @@ jobs:
           MODE: ${{ inputs.mode }}
           PORTFOLIO_JSON: ${{ inputs.portfolio_json }}
           REALIZED_PROFIT: ${{ inputs.realized_profit }}
+          SBI_CAPITAL: ${{ inputs.sbi_capital }}
+          SBI_WATCHLIST_JSON: ${{ inputs.sbi_watchlist_json }}
 
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

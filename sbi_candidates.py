@@ -1,0 +1,257 @@
+from io import BytesIO
+from pathlib import Path
+import time
+from urllib.error import URLError
+from urllib.request import Request, urlopen
+
+import pandas as pd
+
+from sbi_names import SBI_NAMES
+
+
+SBI_BLUE = 0x1D5FA7
+JPX_LIST_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
+MIN_AVERAGE_TURNOVER = 100_000_000
+MAX_LIQUID_UNIVERSE = 500
+DOWNLOAD_BATCH_SIZE = 100
+RISK_RATE = 0.01
+REWARD_MULTIPLE = 2.0
+TAX_RATE = 0.20315
+
+
+def load_symbols(filename="sbi_symbols.txt"):
+    path = Path(__file__).with_name(filename)
+    return [
+        line.strip().upper()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def load_prime_symbols():
+    """JPXの最新一覧からプライム内国普通株を取得する。失敗時は固定リストを使う。"""
+    try:
+        request = Request(JPX_LIST_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(request, timeout=30) as response:
+            listed = pd.read_excel(BytesIO(response.read()))
+        market_column = next(column for column in listed.columns if "市場・商品区分" in str(column))
+        code_column = next(column for column in listed.columns if str(column).strip() == "コード")
+        name_column = next(column for column in listed.columns if "銘柄名" in str(column))
+        prime = listed[listed[market_column].astype(str).str.contains("プライム（内国株式）")]
+        symbols = []
+        names = {}
+        for _, row in prime.iterrows():
+            code = str(row[code_column]).strip()
+            if code.isdigit() and len(code) == 4:
+                symbol = f"{code}.T"
+                symbols.append(symbol)
+                names[symbol] = str(row[name_column]).strip()
+        if not symbols:
+            raise ValueError("プライム銘柄を取得できませんでした")
+        return symbols, names
+    except (OSError, StopIteration, TypeError, ValueError, URLError) as error:
+        print(f"JPX銘柄一覧の取得に失敗。固定リストを使用します: {error}")
+        return load_symbols(), {}
+
+
+def calculate_rsi(close, period=14):
+    delta = close.diff()
+    gain = delta.clip(lower=0).rolling(period).mean()
+    loss = (-delta.clip(upper=0)).rolling(period).mean()
+    latest_gain = float(gain.iloc[-1])
+    latest_loss = float(loss.iloc[-1])
+    if latest_loss == 0:
+        return 100.0 if latest_gain > 0 else 50.0
+    relative_strength = gain / loss
+    return float((100 - (100 / (1 + relative_strength))).iloc[-1])
+
+
+def calculate_atr(data, period=14):
+    high = data["High"].astype(float)
+    low = data["Low"].astype(float)
+    close = data["Close"].astype(float)
+    true_range = pd.concat(
+        [(high - low), (high - close.shift()).abs(), (low - close.shift()).abs()],
+        axis=1,
+    ).max(axis=1)
+    return float(true_range.tail(period).mean())
+
+
+def average_turnover(data):
+    clean = data.dropna(subset=["Close", "Volume"])
+    if len(clean) < 20:
+        return 0.0
+    return float((clean["Close"].astype(float) * clean["Volume"].astype(float)).tail(20).mean())
+
+
+def score_candidate(data, capital, max_price=None):
+    data = data.dropna(subset=["Close", "High", "Low", "Volume"])
+    if len(data) < 25:
+        return None
+    close = data["Close"].astype(float)
+    volume = data["Volume"].astype(float)
+    price = float(close.iloc[-1])
+    if price <= 0 or price > capital or (max_price is not None and price > float(max_price)):
+        return None
+
+    turnover = average_turnover(data)
+    if turnover < MIN_AVERAGE_TURNOVER:
+        return None
+    ma5 = float(close.tail(5).mean())
+    ma20 = float(close.tail(20).mean())
+    change_5d = float((price / close.iloc[-6] - 1) * 100)
+    average_volume = float(volume.iloc[-21:-1].mean())
+    volume_ratio = float(volume.iloc[-1] / average_volume) if average_volume > 0 else 0
+    rsi = calculate_rsi(close)
+    atr = calculate_atr(data)
+    if pd.isna(rsi) or pd.isna(atr) or atr <= 0:
+        return None
+
+    # S株は約定タイミングが限定されるため、過熱・急騰・下降トレンドを候補から外す。
+    if rsi > 70 or not (price > ma20 and ma5 > ma20) or not (-1 <= change_5d <= 8):
+        return None
+
+    risk_per_share = max(atr, price * 0.01)
+    capital_shares = int(capital // price)
+    risk_budget = capital * RISK_RATE
+    risk_shares = int(risk_budget // risk_per_share)
+    shares = min(capital_shares, risk_shares)
+    if shares < 1:
+        return None
+
+    stop_loss = max(1.0, price - risk_per_share)
+    take_profit = price + risk_per_share * REWARD_MULTIPLE
+    max_loss = (price - stop_loss) * shares
+    gross_profit = (take_profit - price) * shares
+    expected_net_profit = gross_profit * (1 - TAX_RATE)
+    reward_ratio = expected_net_profit / max_loss if max_loss else 0
+    expected_return = expected_net_profit / (price * shares) * 100
+
+    score = 0
+    score += 25
+    score += 18 if 45 <= rsi <= 62 else 10
+    score += 18 if 0.5 <= change_5d <= 5 else 10
+    score += 15 if volume_ratio >= 1.2 else (8 if volume_ratio >= 0.9 else 0)
+    score += 12 if turnover >= 1_000_000_000 else (7 if turnover >= 500_000_000 else 3)
+    score += 12 if expected_net_profit >= max(300, capital * 0.008) else 6
+
+    reasons = ["上昇トレンド", "S株向けリスク内"]
+    if 45 <= rsi <= 62:
+        reasons.append("RSIが適温")
+    if volume_ratio >= 1.2:
+        reasons.append("出来高が増加")
+    if turnover >= 1_000_000_000:
+        reasons.append("売買代金が十分")
+    status = "🟢 条件良好" if score >= 85 else "🔵 要チェック"
+    return {
+        "price": price,
+        "score": score,
+        "rsi": rsi,
+        "change_5d": change_5d,
+        "volume_ratio": volume_ratio,
+        "average_turnover": turnover,
+        "shares": shares,
+        "investment": price * shares,
+        "take_profit": take_profit,
+        "stop_loss": stop_loss,
+        "expected_net_profit": expected_net_profit,
+        "max_loss": max_loss,
+        "reward_ratio": reward_ratio,
+        "expected_return": expected_return,
+        "reasons": reasons,
+        "status": status,
+    }
+
+
+def download_batches(symbols):
+    import yfinance as yf
+
+    result = {}
+    for start in range(0, len(symbols), DOWNLOAD_BATCH_SIZE):
+        batch = symbols[start:start + DOWNLOAD_BATCH_SIZE]
+        try:
+            downloaded = yf.download(
+                batch,
+                period="3mo",
+                auto_adjust=True,
+                group_by="ticker",
+                threads=True,
+                progress=False,
+                timeout=30,
+            )
+            for symbol in batch:
+                try:
+                    result[symbol] = downloaded[symbol] if len(batch) > 1 else downloaded
+                except (KeyError, TypeError):
+                    continue
+        except Exception as error:
+            print(f"株価取得バッチをスキップ: {error}")
+        time.sleep(0.3)
+    return result
+
+
+def get_sbi_candidates(capital, limit=5, max_price=None, symbols_filename=None):
+    capital = int(float(capital))
+    if capital <= 0:
+        raise ValueError("運用資金が設定されていません")
+    if symbols_filename:
+        symbols, dynamic_names = load_symbols(symbols_filename), {}
+    else:
+        symbols, dynamic_names = load_prime_symbols()
+    downloaded = download_batches(symbols)
+    liquid_symbols = sorted(
+        downloaded,
+        key=lambda symbol: average_turnover(downloaded[symbol]),
+        reverse=True,
+    )[:MAX_LIQUID_UNIVERSE]
+    candidates = []
+    for symbol in liquid_symbols:
+        try:
+            candidate = score_candidate(downloaded[symbol], capital, max_price=max_price)
+            if candidate:
+                candidate["code"] = symbol
+                candidate["name"] = dynamic_names.get(symbol) or SBI_NAMES.get(symbol, "会社名未登録")
+                candidates.append(candidate)
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue
+    return sorted(
+        candidates,
+        key=lambda item: (item["score"], item["expected_net_profit"], item["average_turnover"]),
+        reverse=True,
+    )[:limit]
+
+
+def create_sbi_candidates_embed(candidates, capital, max_price=None):
+    fields = []
+    for index, item in enumerate(candidates, start=1):
+        code = item["code"].replace(".T", "")
+        reason_text = "・".join(item["reasons"])
+        fields.append({
+            "name": f"{index}. {item.get('name', '会社名未登録')}（{code}）｜{item['status']}",
+            "value": (
+                f"**候補理由：{reason_text}**\n"
+                f"参考価格：{item['price']:,.2f}円　判定：{item['score']}点\n"
+                f"購入候補：**{item['shares']}株**（約{item['investment']:,.0f}円）\n"
+                f"利確候補：{item['take_profit']:,.2f}円　損切り候補：{item['stop_loss']:,.2f}円\n"
+                f"期待税引後利益：約**{item['expected_net_profit']:,.0f}円**　"
+                f"最大損失：約{item['max_loss']:,.0f}円\n"
+                f"税引後RR：{item['reward_ratio']:.2f}倍　期待騰落率：{item['expected_return']:.2f}%\n"
+                f"RSI：{item['rsi']:.1f}　5日騰落：{item['change_5d']:+.2f}%　"
+                f"出来高倍率：{item['volume_ratio']:.2f}倍\n"
+                f"詳しく見る：`/sbi 分析 code:{code}`"
+            ),
+            "inline": False,
+        })
+    if not fields:
+        fields.append({"name": "今回の結果", "value": "S株向けの利益・リスク条件を満たす候補がありませんでした。無理に取引せず時間を置いて再実行してください。", "inline": False})
+    price_condition = f"・1株 **{float(max_price):,.0f}円以下**" if max_price is not None else ""
+    return {
+        "title": "🧪 SBI 1,000円以下候補（テスト）" if max_price == 1000 else "🔎 SBI短期売買 候補一覧",
+        "description": (
+            f"運用資金 **{int(float(capital)):,.0f}円**{price_condition}。"
+            "東証プライムの高流動性最大500銘柄から、S株の約定特性と損益比を考慮して順位付けしました。"
+        ),
+        "color": SBI_BLUE,
+        "fields": fields,
+        "footer": {"text": "利益を保証するものではありません。S株対象可否と注文条件はSBI証券の注文画面で最終確認してください。"},
+    }

@@ -4,6 +4,11 @@ import requests
 import yfinance as yf
 
 from test import analyze_stock
+from sbi_analysis import create_sbi_analysis_embed, get_sbi_trade_plan
+from sbi_candidates import create_sbi_candidates_embed, get_sbi_candidates
+from sbi_watchlist import create_watchlist_embed, get_watchlist_status
+from sbi_timing import create_sbi_timing_embed, get_sbi_timing
+from sbi_auto_monitor import get_auto_monitor_embeds
 
 
 MODE = os.getenv("MODE", "analysis")
@@ -13,6 +18,8 @@ PORTFOLIO_JSON = os.getenv("PORTFOLIO_JSON", "[]")
 REALIZED_PROFIT = float(
     os.getenv("REALIZED_PROFIT", "0") or 0
 )
+SBI_CAPITAL = os.getenv("SBI_CAPITAL", "0")
+SBI_WATCHLIST_JSON = os.getenv("SBI_WATCHLIST_JSON", "[]")
 
 # 6501 → 6501.T のように日本株コードを自動変換
 if len(CODE) == 4 and CODE.isdigit():
@@ -44,6 +51,47 @@ def send_discord(message):
             timeout=30
         )
 
+        response.raise_for_status()
+
+
+def send_discord_embed(embed):
+    url = (
+        f"https://discord.com/api/v10/"
+        f"channels/{CHANNEL_ID}/messages"
+    )
+
+    headers = {
+        "Authorization": f"Bot {BOT_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    response = requests.post(
+        url,
+        headers=headers,
+        json={"embeds": [embed]},
+        timeout=30
+    )
+
+    response.raise_for_status()
+
+
+def send_discord_embeds(embeds):
+    url = (
+        f"https://discord.com/api/v10/"
+        f"channels/{CHANNEL_ID}/messages"
+    )
+    headers = {
+        "Authorization": f"Bot {BOT_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    for index in range(0, len(embeds), 10):
+        response = requests.post(
+            url,
+            headers=headers,
+            json={"embeds": embeds[index:index + 10]},
+            timeout=30
+        )
         response.raise_for_status()
 
 def analyze_portfolio():
@@ -187,6 +235,66 @@ def main():
         raise RuntimeError("Discord Bot Tokenがありません")
 
     try:
+        # SBI短期売買プラン
+        if MODE == "sbi_analysis":
+            if not CODE:
+                raise RuntimeError("銘柄コードがありません")
+
+            plan = get_sbi_trade_plan(CODE, SBI_CAPITAL)
+            embed = create_sbi_analysis_embed(plan)
+            send_discord_embed(embed)
+            return
+
+        if MODE == "sbi_candidates":
+            candidates = get_sbi_candidates(SBI_CAPITAL)
+            embed = create_sbi_candidates_embed(candidates, SBI_CAPITAL)
+            send_discord_embed(embed)
+            return
+
+        if MODE == "sbi_candidates_under_1000":
+            candidates = get_sbi_candidates(
+                SBI_CAPITAL,
+                max_price=1000,
+            )
+            embed = create_sbi_candidates_embed(
+                candidates,
+                SBI_CAPITAL,
+                max_price=1000,
+            )
+            send_discord_embed(embed)
+            return
+
+        if MODE == "sbi_watchlist":
+            results = get_watchlist_status(SBI_WATCHLIST_JSON)
+            embed = create_watchlist_embed(results)
+            send_discord_embed(embed)
+            return
+
+        if MODE == "sbi_timing":
+            if not CODE:
+                raise RuntimeError("銘柄コードがありません")
+            result = get_sbi_timing(
+                CODE,
+                SBI_CAPITAL,
+                PORTFOLIO_JSON,
+                SBI_WATCHLIST_JSON,
+            )
+            embed = create_sbi_timing_embed(result)
+            send_discord_embed(embed)
+            return
+
+        if MODE == "sbi_auto_monitor":
+            embeds = get_auto_monitor_embeds(
+                SBI_CAPITAL,
+                PORTFOLIO_JSON,
+                SBI_WATCHLIST_JSON,
+            )
+            if embeds:
+                send_discord_embeds(embeds)
+            else:
+                print("自動監視: 送信対象なし")
+            return
+
     # 保有株分析
         if MODE == "portfolio":
             message = analyze_portfolio()
