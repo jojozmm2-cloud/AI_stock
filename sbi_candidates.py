@@ -1,5 +1,5 @@
 from io import BytesIO
-from datetime import date, datetime
+from datetime import date, datetime, time as datetime_time, timedelta
 from pathlib import Path
 import time
 from urllib.error import URLError
@@ -22,6 +22,7 @@ TAX_RATE = 0.20315
 MARKET_BENCHMARKS = {"日経平均": "^N225", "TOPIX": "^TOPX"}
 EARNINGS_CHECK_POOL = 30
 JST = ZoneInfo("Asia/Tokyo")
+ADVERSE_ENTRY_SLIPPAGE = 0.005
 
 
 class CandidateList(list):
@@ -206,6 +207,39 @@ def get_next_earnings_date(symbol, today=None):
         return None
 
 
+def next_weekday(value):
+    value += timedelta(days=1)
+    while value.weekday() >= 5:
+        value += timedelta(days=1)
+    return value
+
+
+def get_next_s_stock_execution(now=None):
+    """SBI公表のS株注文時間から次回約定時刻の目安を返す。祝日は最終画面で要確認。"""
+    now = now or datetime.now(JST)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=JST)
+    current_date = now.date()
+    if current_date.weekday() >= 5:
+        target_date = current_date
+        while target_date.weekday() >= 5:
+            target_date += timedelta(days=1)
+        target_time = datetime_time(9, 0)
+    elif now.time() < datetime_time(7, 0):
+        target_date, target_time = current_date, datetime_time(9, 0)
+    elif now.time() < datetime_time(10, 30):
+        target_date, target_time = current_date, datetime_time(12, 30)
+    elif now.time() < datetime_time(14, 0):
+        target_date, target_time = current_date, datetime_time(15, 30)
+    else:
+        target_date, target_time = next_weekday(current_date), datetime_time(9, 0)
+    execution = datetime.combine(target_date, target_time, tzinfo=JST)
+    return {
+        "datetime": execution,
+        "label": execution.strftime("%Y-%m-%d %H:%Mごろ"),
+    }
+
+
 def score_candidate(data, capital, max_price=None):
     data = data.dropna(subset=["Close", "High", "Low", "Volume"])
     if len(data) < 25:
@@ -233,21 +267,22 @@ def score_candidate(data, capital, max_price=None):
     if rsi > 70 or not (price > ma20 and ma5 > ma20) or not (-1 <= change_5d <= 8):
         return None
 
-    risk_per_share = max(atr, price * 0.01)
-    capital_shares = int(capital // price)
+    assumed_entry_price = price * (1 + ADVERSE_ENTRY_SLIPPAGE)
+    risk_per_share = max(atr, assumed_entry_price * 0.01)
+    capital_shares = int(capital // assumed_entry_price)
     risk_budget = capital * RISK_RATE
     risk_shares = int(risk_budget // risk_per_share)
     shares = min(capital_shares, risk_shares)
     if shares < 1:
         return None
 
-    stop_loss = max(1.0, price - risk_per_share)
-    take_profit = price + risk_per_share * REWARD_MULTIPLE
-    planned_loss = (price - stop_loss) * shares
-    gross_profit = (take_profit - price) * shares
+    stop_loss = max(1.0, assumed_entry_price - risk_per_share)
+    take_profit = assumed_entry_price + risk_per_share * REWARD_MULTIPLE
+    planned_loss = (assumed_entry_price - stop_loss) * shares
+    gross_profit = (take_profit - assumed_entry_price) * shares
     take_profit_net_profit = gross_profit * (1 - TAX_RATE)
     reward_ratio = take_profit_net_profit / planned_loss if planned_loss else 0
-    target_net_return = take_profit_net_profit / (price * shares) * 100
+    target_net_return = take_profit_net_profit / (assumed_entry_price * shares) * 100
     stress_loss_1_5x = planned_loss * 1.5
     stress_loss_2x = planned_loss * 2
 
@@ -272,13 +307,14 @@ def score_candidate(data, capital, max_price=None):
     status = "🟢 条件良好" if score >= 85 else "🔵 要チェック"
     return {
         "price": price,
+        "assumed_entry_price": assumed_entry_price,
         "score": score,
         "rsi": rsi,
         "change_5d": change_5d,
         "volume_ratio": volume_ratio,
         "average_turnover": turnover,
         "shares": shares,
-        "investment": price * shares,
+        "investment": assumed_entry_price * shares,
         "take_profit": take_profit,
         "stop_loss": stop_loss,
         "take_profit_net_profit": take_profit_net_profit,
@@ -368,6 +404,7 @@ def get_sbi_candidates(capital, limit=5, max_price=None, symbols_filename=None):
 
 def create_sbi_candidates_embed(candidates, capital, max_price=None):
     fields = []
+    execution = get_next_s_stock_execution()
     for index, item in enumerate(candidates, start=1):
         code = item["code"].replace(".T", "")
         reason_text = "・".join(item["reasons"])
@@ -380,8 +417,9 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
             "name": f"{index}. {item.get('name', '会社名未登録')}（{code}）｜{item['status']}",
             "value": (
                 f"**候補理由：{reason_text}**\n"
-                f"参考価格：{item['price']:,.2f}円　判定：{item['score']}点\n"
-                f"購入候補：**{item['shares']}株**（約{item['investment']:,.0f}円）\n"
+                f"現在の参考価格：{item['price']:,.2f}円　判定：{item['score']}点\n"
+                f"保守的な想定買付価格（+0.5%）：{item['assumed_entry_price']:,.2f}円\n"
+                f"購入候補：**{item['shares']}株**（想定約{item['investment']:,.0f}円）\n"
                 f"利確候補：{item['take_profit']:,.2f}円　損切り候補：{item['stop_loss']:,.2f}円\n"
                 f"利確到達時の税引後利益：約**{item['take_profit_net_profit']:,.0f}円**\n"
                 f"損切り価格で約定した場合の想定損失：約{item['planned_loss']:,.0f}円\n"
@@ -408,7 +446,8 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
         "description": (
             f"運用資金 **{int(float(capital)):,.0f}円**{price_condition}。"
             "東証プライムの高流動性最大500銘柄から、S株の約定特性と損益比を考慮して順位付けしました。\n"
-            f"{market['label']}：{market['description']}"
+            f"{market['label']}：{market['description']}\n"
+            f"次回S株約定目安：**{execution['label']}**（営業日・注文状況はSBI画面で要確認）"
         ),
         "color": SBI_BLUE,
         "fields": fields,

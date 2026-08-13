@@ -1,9 +1,15 @@
 import unittest
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from sbi_candidates import evaluate_market_data, in_earnings_blackout, score_candidate
+from sbi_candidates import (
+    evaluate_market_data,
+    get_next_s_stock_execution,
+    in_earnings_blackout,
+    score_candidate,
+)
 
 
 class SbiCandidatesTest(unittest.TestCase):
@@ -25,6 +31,7 @@ class SbiCandidatesTest(unittest.TestCase):
         self.assertLess(result["stop_loss"], result["price"])
         self.assertGreater(result["take_profit_net_profit"], result["planned_loss"])
         self.assertEqual(result["stress_loss_2x"], result["planned_loss"] * 2)
+        self.assertGreater(result["assumed_entry_price"], result["price"])
 
     def test_overheated_stock_is_excluded(self):
         data = self.make_data()
@@ -46,6 +53,15 @@ class SbiCandidatesTest(unittest.TestCase):
         self.assertTrue(in_earnings_blackout(earnings, date(2026, 8, 17)))
         self.assertFalse(in_earnings_blackout(earnings, date(2026, 8, 10)))
         self.assertFalse(in_earnings_blackout(earnings, date(2026, 8, 18)))
+
+    def test_next_s_stock_execution(self):
+        jst = ZoneInfo("Asia/Tokyo")
+        morning = get_next_s_stock_execution(datetime(2026, 8, 14, 8, 0, tzinfo=jst))
+        midday = get_next_s_stock_execution(datetime(2026, 8, 14, 11, 0, tzinfo=jst))
+        evening = get_next_s_stock_execution(datetime(2026, 8, 14, 15, 0, tzinfo=jst))
+        self.assertEqual(morning["datetime"].hour, 12)
+        self.assertEqual(midday["datetime"].hour, 15)
+        self.assertEqual(evening["datetime"].date(), date(2026, 8, 17))
 
 
 if __name__ == "__main__":
