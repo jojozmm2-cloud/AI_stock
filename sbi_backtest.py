@@ -4,6 +4,7 @@ import pandas as pd
 
 from sbi_candidates import (
     ADVERSE_ENTRY_SLIPPAGE,
+    MARKET_BENCHMARKS,
     MAX_LIQUID_UNIVERSE,
     REWARD_MULTIPLE,
     RISK_RATE,
@@ -49,11 +50,12 @@ def historical_market_is_risk_off(benchmarks, signal_date):
 def run_backtest(capital=100_000, months=12):
     import yfinance as yf
 
+    capital = int(float(capital))
     symbols, _ = load_prime_symbols()
     downloaded = download_batches(symbols, period="15mo")
     liquid = sorted(downloaded, key=lambda symbol: average_turnover(downloaded[symbol]), reverse=True)[:MAX_LIQUID_UNIVERSE]
     benchmarks = {}
-    for symbol in ("^N225", "^TOPX"):
+    for symbol in MARKET_BENCHMARKS.values():
         data = yf.download(symbol, period="15mo", auto_adjust=True, progress=False)
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)

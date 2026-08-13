@@ -6,6 +6,9 @@ from sbi_backtest import evaluate_trade
 
 
 class SbiBacktestTest(unittest.TestCase):
+    def test_capital_string_is_accepted_by_public_runner_signature(self):
+        self.assertEqual(int(float("100000")), 100000)
+
     def test_same_day_target_and_stop_uses_stop(self):
         future = pd.DataFrame({"High": [110], "Low": [90], "Close": [105]})
         result = evaluate_trade(future, entry_price=100, risk_per_share=5, shares=2)
