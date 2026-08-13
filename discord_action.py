@@ -55,6 +55,13 @@ def discord_request(method, path, **kwargs):
 def diagnose_discord_connection():
     bot = discord_request("GET", "/users/@me").json()
     print(f"Discord Bot: {bot.get('username')} (id={bot.get('id')})")
+    guilds = discord_request("GET", "/users/@me/guilds").json()
+    if guilds:
+        print("Discord Guilds visible to bot:")
+        for guild in guilds:
+            print(f"- {guild.get('name')} (id={guild.get('id')})")
+    else:
+        print("Discord Guilds visible to bot: NONE")
     channel = discord_request("GET", f"/channels/{CHANNEL_ID}").json()
     print(
         f"Discord Channel: {channel.get('name')} "
