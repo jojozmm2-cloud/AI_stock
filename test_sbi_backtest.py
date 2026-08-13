@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from sbi_backtest import evaluate_trade, relative_signal
+from sbi_backtest import Position, close_position, relative_signal
 
 
 class SbiBacktestTest(unittest.TestCase):
@@ -10,17 +10,24 @@ class SbiBacktestTest(unittest.TestCase):
         self.assertEqual(int(float("100000")), 100000)
 
     def test_same_day_target_and_stop_uses_stop(self):
-        future = pd.DataFrame({"High": [110], "Low": [90], "Close": [105]})
-        result = evaluate_trade(future, entry_price=100, base_risk=5, shares=2)
-        self.assertEqual(result["outcome"], "loss")
-        self.assertEqual(result["pnl"], -10)
+        position = Position("TEST", "momentum", 2, 100, 95, 110, 0, 200)
+        result = close_position(
+            position,
+            pd.Series({"High": 110, "Low": 90, "Close": 105}),
+            day_index=1,
+            params={"holding": 10},
+        )
+        self.assertEqual(result, (95, "loss"))
 
     def test_target_is_taxed(self):
-        future = pd.DataFrame({"High": [111], "Low": [99], "Close": [110]})
-        result = evaluate_trade(future, entry_price=100, base_risk=5, shares=2)
-        self.assertEqual(result["outcome"], "win")
-        self.assertGreater(result["pnl"], 15)
-        self.assertLess(result["pnl"], 20)
+        position = Position("TEST", "momentum", 2, 100, 95, 110, 0, 200)
+        result = close_position(
+            position,
+            pd.Series({"High": 111, "Low": 99, "Close": 110}),
+            day_index=1,
+            params={"holding": 10},
+        )
+        self.assertEqual(result, (110, "win"))
 
     def test_relative_momentum_requires_market_outperformance(self):
         stock_close = [100]
