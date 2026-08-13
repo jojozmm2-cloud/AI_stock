@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from sbi_names import SBI_NAMES
+from tdnet import fetch_recent_tdnet, summarize_tdnet
 
 
 SBI_BLUE = 0x1D5FA7
@@ -511,8 +512,19 @@ def get_sbi_candidates(capital, limit=3, max_price=None, symbols_filename=None):
         key=lambda item: (item["score"], item["take_profit_net_profit"], item["average_turnover"]),
         reverse=True,
     )
+    try:
+        tdnet_by_code = fetch_recent_tdnet(days=7)
+    except Exception as error:
+        print(f"TDnet取得失敗（公式材料は未確認扱い）: {error}")
+        tdnet_by_code = {}
     earnings_checked = []
     for candidate in ranked[:EARNINGS_CHECK_POOL]:
+        code = candidate["code"].replace(".T", "")
+        official_news = summarize_tdnet(tdnet_by_code.get(code, []))
+        if official_news["negative"]:
+            print(f"TDnet悪材料のため候補除外: {candidate['code']}")
+            continue
+        candidate["official_news"] = official_news
         earnings_date = get_next_earnings_date(candidate["code"])
         if in_earnings_blackout(earnings_date):
             print(f"決算前後のため候補除外: {candidate['code']} ({earnings_date})")
@@ -536,6 +548,15 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
             if item.get("earnings_checked")
             else "次回決算予定：取得できず（要確認）"
         )
+        official = item.get("official_news", {"confidence": "中立", "items": []})
+        if official["items"]:
+            material = official["items"][0]
+            official_text = (
+                f"公式材料：[{material['title']}]({material['url']})\n"
+                f"発表：{material['date']:%Y-%m-%d} {material['time']}　情報信頼度：{official['confidence']}"
+            )
+        else:
+            official_text = "公式材料：直近7日間に判定対象のTDnet開示なし（中立）"
         fields.append({
             "name": f"{index}. {item.get('name', '会社名未登録')}（{code}）｜{item['status']}",
             "value": (
@@ -553,6 +574,7 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
                 f"出来高倍率：{item['volume_ratio']:.2f}倍\n"
                 f"過去同条件：{item['history']['signals']}回　勝率：{item['history']['win_rate']:.1f}%　"
                 f"平均損益：{item['history']['average_return']:+.2f}%　PF：{item['history']['profit_factor']:.2f}\n"
+                f"{official_text}\n"
                 f"{earnings_text}\n"
                 f"詳しく見る：`/sbi 分析 code:{code}`"
             ),
