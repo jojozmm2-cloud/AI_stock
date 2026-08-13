@@ -17,6 +17,13 @@ DOWNLOAD_BATCH_SIZE = 100
 RISK_RATE = 0.01
 REWARD_MULTIPLE = 2.0
 TAX_RATE = 0.20315
+MARKET_BENCHMARKS = {"日経平均": "^N225", "TOPIX": "^TOPX"}
+
+
+class CandidateList(list):
+    def __init__(self, values=(), market=None):
+        super().__init__(values)
+        self.market = market or {"status": "unknown", "label": "地合い取得失敗"}
 
 
 def load_symbols(filename="sbi_symbols.txt"):
@@ -84,6 +91,81 @@ def average_turnover(data):
     return float((clean["Close"].astype(float) * clean["Volume"].astype(float)).tail(20).mean())
 
 
+def evaluate_market_data(data):
+    clean = data.dropna(subset=["Close"])
+    if len(clean) < 21:
+        return None
+    close = clean["Close"].astype(float)
+    price = float(close.iloc[-1])
+    ma20 = float(close.tail(20).mean())
+    change_5d = float((price / close.iloc[-6] - 1) * 100)
+    return {
+        "price": price,
+        "ma20": ma20,
+        "change_5d": change_5d,
+        "weak": price < ma20,
+        "sharp_drop": change_5d <= -3,
+    }
+
+
+def get_market_regime():
+    """日経平均とTOPIXから、候補数を調整するための地合いを判定する。"""
+    import yfinance as yf
+
+    details = {}
+    for name, symbol in MARKET_BENCHMARKS.items():
+        try:
+            data = yf.download(
+                symbol,
+                period="3mo",
+                auto_adjust=True,
+                progress=False,
+                timeout=20,
+            )
+            # yfinanceの単一銘柄でもMultiIndexになる版に対応する。
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.get_level_values(0)
+            result = evaluate_market_data(data)
+            if result:
+                details[name] = result
+        except Exception as error:
+            print(f"地合いデータ取得失敗 {name}: {error}")
+
+    if len(details) < len(MARKET_BENCHMARKS):
+        return {
+            "status": "unknown",
+            "label": "⚪ 地合い判定なし",
+            "description": "指数データを取得できなかったため、地合いによる除外はしていません。",
+            "limit": 5,
+            "details": details,
+        }
+    weak_count = sum(item["weak"] for item in details.values())
+    sharp_drop = any(item["sharp_drop"] for item in details.values())
+    if sharp_drop or weak_count == 2:
+        return {
+            "status": "risk_off",
+            "label": "🔴 地合い悪化・見送り",
+            "description": "日経平均・TOPIXの下落条件により、今日は新規候補を出しません。",
+            "limit": 0,
+            "details": details,
+        }
+    if weak_count == 1:
+        return {
+            "status": "cautious",
+            "label": "🟡 地合い注意",
+            "description": "指数の一方が20日線を下回っているため、候補を最大3銘柄に絞ります。",
+            "limit": 3,
+            "details": details,
+        }
+    return {
+        "status": "normal",
+        "label": "🟢 地合い良好",
+        "description": "日経平均・TOPIXとも極端な悪化条件には該当していません。",
+        "limit": 5,
+        "details": details,
+    }
+
+
 def score_candidate(data, capital, max_price=None):
     data = data.dropna(subset=["Close", "High", "Low", "Volume"])
     if len(data) < 25:
@@ -121,19 +203,24 @@ def score_candidate(data, capital, max_price=None):
 
     stop_loss = max(1.0, price - risk_per_share)
     take_profit = price + risk_per_share * REWARD_MULTIPLE
-    max_loss = (price - stop_loss) * shares
+    planned_loss = (price - stop_loss) * shares
     gross_profit = (take_profit - price) * shares
-    expected_net_profit = gross_profit * (1 - TAX_RATE)
-    reward_ratio = expected_net_profit / max_loss if max_loss else 0
-    expected_return = expected_net_profit / (price * shares) * 100
+    take_profit_net_profit = gross_profit * (1 - TAX_RATE)
+    reward_ratio = take_profit_net_profit / planned_loss if planned_loss else 0
+    target_net_return = take_profit_net_profit / (price * shares) * 100
+    stress_loss_1_5x = planned_loss * 1.5
+    stress_loss_2x = planned_loss * 2
 
-    score = 0
-    score += 25
-    score += 18 if 45 <= rsi <= 62 else 10
-    score += 18 if 0.5 <= change_5d <= 5 else 10
-    score += 15 if volume_ratio >= 1.2 else (8 if volume_ratio >= 0.9 else 0)
-    score += 12 if turnover >= 1_000_000_000 else (7 if turnover >= 500_000_000 else 3)
-    score += 12 if expected_net_profit >= max(300, capital * 0.008) else 6
+    trend_score = min(25, 15 + max(0, min(10, (price / ma20 - 1) * 200)))
+    rsi_score = max(5, 20 - abs(rsi - 54) * 0.8)
+    momentum_score = max(5, 18 - abs(change_5d - 2.5) * 2)
+    volume_score = min(15, 6 + volume_ratio * 5)
+    liquidity_score = min(12, 3 + turnover / 200_000_000)
+    profit_score = min(10, 4 + take_profit_net_profit / max(100, capital * 0.002))
+    score = round(
+        trend_score + rsi_score + momentum_score + volume_score
+        + liquidity_score + profit_score
+    )
 
     reasons = ["上昇トレンド", "S株向けリスク内"]
     if 45 <= rsi <= 62:
@@ -154,10 +241,12 @@ def score_candidate(data, capital, max_price=None):
         "investment": price * shares,
         "take_profit": take_profit,
         "stop_loss": stop_loss,
-        "expected_net_profit": expected_net_profit,
-        "max_loss": max_loss,
+        "take_profit_net_profit": take_profit_net_profit,
+        "planned_loss": planned_loss,
+        "stress_loss_1_5x": stress_loss_1_5x,
+        "stress_loss_2x": stress_loss_2x,
         "reward_ratio": reward_ratio,
-        "expected_return": expected_return,
+        "target_net_return": target_net_return,
         "reasons": reasons,
         "status": status,
     }
@@ -194,6 +283,10 @@ def get_sbi_candidates(capital, limit=5, max_price=None, symbols_filename=None):
     capital = int(float(capital))
     if capital <= 0:
         raise ValueError("運用資金が設定されていません")
+    market = get_market_regime()
+    effective_limit = min(limit, market["limit"])
+    if effective_limit == 0:
+        return CandidateList(market=market)
     if symbols_filename:
         symbols, dynamic_names = load_symbols(symbols_filename), {}
     else:
@@ -214,11 +307,12 @@ def get_sbi_candidates(capital, limit=5, max_price=None, symbols_filename=None):
                 candidates.append(candidate)
         except (KeyError, IndexError, TypeError, ValueError):
             continue
-    return sorted(
+    ranked = sorted(
         candidates,
-        key=lambda item: (item["score"], item["expected_net_profit"], item["average_turnover"]),
+        key=lambda item: (item["score"], item["take_profit_net_profit"], item["average_turnover"]),
         reverse=True,
-    )[:limit]
+    )[:effective_limit]
+    return CandidateList(ranked, market=market)
 
 
 def create_sbi_candidates_embed(candidates, capital, max_price=None):
@@ -233,23 +327,31 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
                 f"参考価格：{item['price']:,.2f}円　判定：{item['score']}点\n"
                 f"購入候補：**{item['shares']}株**（約{item['investment']:,.0f}円）\n"
                 f"利確候補：{item['take_profit']:,.2f}円　損切り候補：{item['stop_loss']:,.2f}円\n"
-                f"期待税引後利益：約**{item['expected_net_profit']:,.0f}円**　"
-                f"最大損失：約{item['max_loss']:,.0f}円\n"
-                f"税引後RR：{item['reward_ratio']:.2f}倍　期待騰落率：{item['expected_return']:.2f}%\n"
+                f"利確到達時の税引後利益：約**{item['take_profit_net_profit']:,.0f}円**\n"
+                f"損切り価格で約定した場合の想定損失：約{item['planned_loss']:,.0f}円\n"
+                f"ストレス損失（値幅1.5倍／2倍）：約{item['stress_loss_1_5x']:,.0f}円／"
+                f"約{item['stress_loss_2x']:,.0f}円\n"
+                f"税引後RR：{item['reward_ratio']:.2f}倍　利確時税引後騰落率：{item['target_net_return']:.2f}%\n"
                 f"RSI：{item['rsi']:.1f}　5日騰落：{item['change_5d']:+.2f}%　"
                 f"出来高倍率：{item['volume_ratio']:.2f}倍\n"
                 f"詳しく見る：`/sbi 分析 code:{code}`"
             ),
             "inline": False,
         })
+    market = getattr(candidates, "market", {"label": "⚪ 地合い判定なし", "description": ""})
     if not fields:
-        fields.append({"name": "今回の結果", "value": "S株向けの利益・リスク条件を満たす候補がありませんでした。無理に取引せず時間を置いて再実行してください。", "inline": False})
+        no_candidate_text = (
+            market["description"] if market.get("status") == "risk_off"
+            else "S株向けの利益・リスク条件を満たす候補がありませんでした。無理に取引せず時間を置いて再実行してください。"
+        )
+        fields.append({"name": "今回の結果", "value": no_candidate_text, "inline": False})
     price_condition = f"・1株 **{float(max_price):,.0f}円以下**" if max_price is not None else ""
     return {
         "title": "🧪 SBI 1,000円以下候補（テスト）" if max_price == 1000 else "🔎 SBI短期売買 候補一覧",
         "description": (
             f"運用資金 **{int(float(capital)):,.0f}円**{price_condition}。"
-            "東証プライムの高流動性最大500銘柄から、S株の約定特性と損益比を考慮して順位付けしました。"
+            "東証プライムの高流動性最大500銘柄から、S株の約定特性と損益比を考慮して順位付けしました。\n"
+            f"{market['label']}：{market['description']}"
         ),
         "color": SBI_BLUE,
         "fields": fields,

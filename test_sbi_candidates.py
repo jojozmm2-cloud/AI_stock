@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from sbi_candidates import score_candidate
+from sbi_candidates import evaluate_market_data, score_candidate
 
 
 class SbiCandidatesTest(unittest.TestCase):
@@ -22,7 +22,8 @@ class SbiCandidatesTest(unittest.TestCase):
         self.assertGreaterEqual(result["shares"], 1)
         self.assertGreater(result["take_profit"], result["price"])
         self.assertLess(result["stop_loss"], result["price"])
-        self.assertGreater(result["expected_net_profit"], result["max_loss"])
+        self.assertGreater(result["take_profit_net_profit"], result["planned_loss"])
+        self.assertEqual(result["stress_loss_2x"], result["planned_loss"] * 2)
 
     def test_overheated_stock_is_excluded(self):
         data = self.make_data()
@@ -31,6 +32,12 @@ class SbiCandidatesTest(unittest.TestCase):
         data["Low"] = data["Close"] - 12
         result = score_candidate(data, capital=70_000)
         self.assertIsNone(result)
+
+    def test_market_data_detects_weak_market(self):
+        close = [100 + index for index in range(20)] + [90]
+        result = evaluate_market_data(pd.DataFrame({"Close": close}))
+        self.assertTrue(result["weak"])
+        self.assertTrue(result["sharp_drop"])
 
 
 if __name__ == "__main__":
