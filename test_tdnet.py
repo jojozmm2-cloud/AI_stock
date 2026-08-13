@@ -1,7 +1,10 @@
 import unittest
 from datetime import date
 
-from tdnet import classify_disclosure, create_tdnet_test_embed, parse_tdnet_html, summarize_tdnet
+from tdnet import (
+    analyze_disclosure_document, classify_disclosure, create_tdnet_test_embed,
+    parse_tdnet_html, summarize_tdnet,
+)
 
 
 class TdnetTest(unittest.TestCase):
@@ -28,6 +31,17 @@ class TdnetTest(unittest.TestCase):
         embed = create_tdnet_test_embed({})
         self.assertIn("0件", embed["description"])
         self.assertEqual(embed["fields"][0]["value"], "該当なし")
+
+    def test_sponsorship_and_buyback_completion_are_neutral(self):
+        self.assertEqual(classify_disclosure("学生向け就職支援サービスのスポンサー契約"), "neutral")
+        self.assertEqual(classify_disclosure("自己株式の取得状況及び取得終了"), "neutral")
+
+    def test_partnership_requires_concrete_impact(self):
+        item = {"title": "株式会社Bとの業務提携に関するお知らせ"}
+        neutral = analyze_disclosure_document(item, "本件による業績への影響は軽微です。")
+        self.assertEqual(neutral["sentiment"], "neutral")
+        positive = analyze_disclosure_document(item, "本提携に伴い業績予想を上方修正します。")
+        self.assertEqual(positive["sentiment"], "positive")
 
 
 if __name__ == "__main__":

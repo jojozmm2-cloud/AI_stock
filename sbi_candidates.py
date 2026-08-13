@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from sbi_names import SBI_NAMES
-from tdnet import fetch_recent_tdnet, summarize_tdnet
+from tdnet import enrich_disclosures, fetch_recent_tdnet, summarize_tdnet
 
 
 SBI_BLUE = 0x1D5FA7
@@ -520,7 +520,9 @@ def get_sbi_candidates(capital, limit=3, max_price=None, symbols_filename=None):
     earnings_checked = []
     for candidate in ranked[:EARNINGS_CHECK_POOL]:
         code = candidate["code"].replace(".T", "")
-        official_news = summarize_tdnet(tdnet_by_code.get(code, []))
+        official_items = tdnet_by_code.get(code, [])
+        enrich_disclosures(official_items, max_documents=3)
+        official_news = summarize_tdnet(official_items)
         if official_news["negative"]:
             print(f"TDnet悪材料のため候補除外: {candidate['code']}")
             continue
@@ -549,14 +551,15 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
             else "次回決算予定：取得できず（要確認）"
         )
         official = item.get("official_news", {"confidence": "中立", "items": []})
-        if official["items"]:
-            material = official["items"][0]
+        confirmed_items = [news for news in official["items"] if news.get("document_checked")]
+        if confirmed_items:
+            material = confirmed_items[0]
             official_text = (
                 f"公式材料：[{material['title']}]({material['url']})\n"
                 f"発表：{material['date']:%Y-%m-%d} {material['time']}　情報信頼度：{official['confidence']}"
             )
         else:
-            official_text = "公式材料：直近7日間に判定対象のTDnet開示なし（中立）"
+            official_text = "公式材料：本文確認済みの判定対象材料なし（中立）"
         fields.append({
             "name": f"{index}. {item.get('name', '会社名未登録')}（{code}）｜{item['status']}",
             "value": (

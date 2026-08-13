@@ -60,7 +60,7 @@ jobs:
       - name: Pythonライブラリをインストール
         run: |
           python -m pip install --upgrade pip
-          pip install yfinance pandas xlrd ta requests feedparser openai python-dotenv
+          pip install yfinance pandas xlrd ta requests feedparser openai python-dotenv pypdf
 
       - name: Discordから指定された株を分析
         env:
