@@ -9,6 +9,7 @@ from sbi_candidates import (
     get_next_s_stock_execution,
     in_earnings_blackout,
     score_candidate,
+    validate_candidate_history,
 )
 
 
@@ -40,6 +41,20 @@ class SbiCandidatesTest(unittest.TestCase):
         data["Low"] = data["Close"] - 12
         result = score_candidate(data, capital=70_000)
         self.assertIsNone(result)
+
+    def test_history_validation_requires_enough_data(self):
+        self.assertIsNone(validate_candidate_history(self.make_data()))
+
+    def test_history_validation_rejects_too_few_matching_signals(self):
+        close = [1000 + index * 10 for index in range(150)]
+        data = pd.DataFrame({
+            "Open": close,
+            "Close": close,
+            "High": [value + 5 for value in close],
+            "Low": [value - 5 for value in close],
+            "Volume": [1_000_000] * len(close),
+        })
+        self.assertIsNone(validate_candidate_history(data))
 
     def test_market_data_detects_weak_market(self):
         close = [100 + index for index in range(20)] + [90]

@@ -23,6 +23,11 @@ MARKET_BENCHMARKS = {"日経平均": "^N225", "TOPIX連動ETF": "1306.T"}
 EARNINGS_CHECK_POOL = 30
 JST = ZoneInfo("Asia/Tokyo")
 ADVERSE_ENTRY_SLIPPAGE = 0.005
+MIN_LIVE_SCORE = 92
+MIN_HISTORY_SIGNALS = 5
+MIN_HISTORY_WIN_RATE = 55.0
+MIN_HISTORY_PROFIT_FACTOR = 1.20
+HISTORY_HOLDING_DAYS = 10
 
 
 class CandidateList(list):
@@ -364,6 +369,81 @@ def score_candidate(data, capital, max_price=None, require_pullback=False):
     }
 
 
+def validate_candidate_history(data):
+    """現在と同じ押し目条件が、過去データでプラスだったかを保守的に検証する。"""
+    if not {"Open", "Close", "High", "Low", "Volume"}.issubset(data.columns):
+        return None
+    clean = data.dropna(subset=["Open", "Close", "High", "Low", "Volume"]).copy()
+    if len(clean) < 120:
+        return None
+
+    outcomes = []
+    for index in range(25, len(clean) - HISTORY_HOLDING_DAYS - 1):
+        history = clean.iloc[:index + 1]
+        close = history["Close"].astype(float)
+        volume = history["Volume"].astype(float)
+        price = float(close.iloc[-1])
+        ma5 = float(close.tail(5).mean())
+        ma20 = float(close.tail(20).mean())
+        atr = calculate_atr(history)
+        rsi = calculate_rsi(close)
+        change_5d = float((price / close.iloc[-6] - 1) * 100)
+        change_1d = float((price / close.iloc[-2] - 1) * 100)
+        average_volume = float(volume.iloc[-21:-1].mean())
+        volume_ratio = float(volume.iloc[-1] / average_volume) if average_volume > 0 else 0
+        day_range = float(history["High"].iloc[-1] - history["Low"].iloc[-1])
+        close_location = float((price - history["Low"].iloc[-1]) / day_range) if day_range > 0 else 0.5
+        ma5_distance_atr = (price - ma5) / atr if atr > 0 else 99
+
+        signal = (
+            price > ma20 and ma5 > ma20
+            and 45 <= rsi <= 62
+            and 1 <= change_5d <= 4
+            and change_1d <= 2.5
+            and -0.25 <= ma5_distance_atr <= 1.0
+            and close_location <= 0.8
+            and volume_ratio >= 1.1
+        )
+        if not signal:
+            continue
+
+        future = clean.iloc[index + 1:index + 1 + HISTORY_HOLDING_DAYS]
+        entry = float(future["Open"].iloc[0]) * (1 + ADVERSE_ENTRY_SLIPPAGE)
+        risk = max(atr, entry * 0.01)
+        stop, target = entry - risk, entry + risk * REWARD_MULTIPLE
+        exit_price = float(future["Close"].iloc[-1])
+        for _, row in future.iterrows():
+            # 同日に両方へ触れた場合も損切りを先にした保守的な判定。
+            if float(row["Low"]) <= stop:
+                exit_price = stop
+                break
+            if float(row["High"]) >= target:
+                exit_price = target
+                break
+        raw_return = (exit_price / entry - 1) * 100
+        net_return = raw_return * (1 - TAX_RATE) if raw_return > 0 else raw_return
+        outcomes.append(net_return)
+
+    if len(outcomes) < MIN_HISTORY_SIGNALS:
+        return None
+    gains = sum(value for value in outcomes if value > 0)
+    losses = abs(sum(value for value in outcomes if value < 0))
+    profit_factor = gains / losses if losses else float("inf")
+    win_rate = sum(value > 0 for value in outcomes) / len(outcomes) * 100
+    average_return = sum(outcomes) / len(outcomes)
+    return {
+        "signals": len(outcomes),
+        "win_rate": win_rate,
+        "average_return": average_return,
+        "profit_factor": profit_factor,
+        "passed": (
+            win_rate >= MIN_HISTORY_WIN_RATE
+            and average_return > 0
+            and profit_factor >= MIN_HISTORY_PROFIT_FACTOR
+        ),
+    }
+
+
 def download_batches(symbols, period="3mo"):
     import yfinance as yf
 
@@ -391,7 +471,7 @@ def download_batches(symbols, period="3mo"):
     return result
 
 
-def get_sbi_candidates(capital, limit=5, max_price=None, symbols_filename=None):
+def get_sbi_candidates(capital, limit=3, max_price=None, symbols_filename=None):
     capital = int(float(capital))
     if capital <= 0:
         raise ValueError("運用資金が設定されていません")
@@ -403,7 +483,7 @@ def get_sbi_candidates(capital, limit=5, max_price=None, symbols_filename=None):
         symbols, dynamic_names = load_symbols(symbols_filename), {}
     else:
         symbols, dynamic_names = load_prime_symbols()
-    downloaded = download_batches(symbols)
+    downloaded = download_batches(symbols, period="1y")
     liquid_symbols = sorted(
         downloaded,
         key=lambda symbol: average_turnover(downloaded[symbol]),
@@ -412,8 +492,15 @@ def get_sbi_candidates(capital, limit=5, max_price=None, symbols_filename=None):
     candidates = []
     for symbol in liquid_symbols:
         try:
-            candidate = score_candidate(downloaded[symbol], capital, max_price=max_price)
-            if candidate:
+            candidate = score_candidate(
+                downloaded[symbol], capital, max_price=max_price, require_pullback=True,
+            )
+            if candidate and candidate["score"] >= MIN_LIVE_SCORE and candidate["volume_ratio"] >= 1.1:
+                validation = validate_candidate_history(downloaded[symbol])
+                if not validation or not validation["passed"]:
+                    continue
+                candidate["history"] = validation
+                candidate["reasons"].append("過去の同条件が検証基準を通過")
                 candidate["code"] = symbol
                 candidate["name"] = dynamic_names.get(symbol) or SBI_NAMES.get(symbol, "会社名未登録")
                 candidates.append(candidate)
@@ -464,6 +551,8 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
                 f"税引後RR：{item['reward_ratio']:.2f}倍　利確時税引後騰落率：{item['target_net_return']:.2f}%\n"
                 f"RSI：{item['rsi']:.1f}　5日騰落：{item['change_5d']:+.2f}%　"
                 f"出来高倍率：{item['volume_ratio']:.2f}倍\n"
+                f"過去同条件：{item['history']['signals']}回　勝率：{item['history']['win_rate']:.1f}%　"
+                f"平均損益：{item['history']['average_return']:+.2f}%　PF：{item['history']['profit_factor']:.2f}\n"
                 f"{earnings_text}\n"
                 f"詳しく見る：`/sbi 分析 code:{code}`"
             ),
@@ -473,7 +562,7 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
     if not fields:
         no_candidate_text = (
             market["description"] if market.get("status") == "risk_off"
-            else "S株向けの利益・リスク条件を満たす候補がありませんでした。無理に取引せず時間を置いて再実行してください。"
+            else "⏸️ 待機：現在の厳格なスコアと過去検証基準を両方満たす銘柄はありません。今回は買わず、次の強いシグナルを待ちます。"
         )
         fields.append({"name": "今回の結果", "value": no_candidate_text, "inline": False})
     price_condition = f"・1株 **{float(max_price):,.0f}円以下**" if max_price is not None else ""
@@ -481,7 +570,7 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
         "title": "🧪 SBI 1,000円以下候補（テスト）" if max_price == 1000 else "🔎 SBI短期売買 候補一覧",
         "description": (
             f"運用資金 **{int(float(capital)):,.0f}円**{price_condition}。"
-            "東証プライムの高流動性最大500銘柄から、S株の約定特性と損益比を考慮して順位付けしました。\n"
+            "東証プライムの高流動性最大500銘柄から、92点以上かつ過去の同条件がプラスだった銘柄だけを最大3件通知します。\n"
             f"{market['label']}：{market['description']}\n"
             f"次回S株約定目安：**{execution['label']}**（営業日・注文状況はSBI画面で要確認）"
         ),

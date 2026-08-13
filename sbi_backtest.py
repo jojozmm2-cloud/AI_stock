@@ -3,9 +3,10 @@ from dataclasses import dataclass
 import pandas as pd
 
 from sbi_candidates import (
-    MARKET_BENCHMARKS, MAX_LIQUID_UNIVERSE, TAX_RATE,
+    MARKET_BENCHMARKS, MAX_LIQUID_UNIVERSE, MIN_LIVE_SCORE, TAX_RATE,
     average_turnover, calculate_atr, download_batches,
     evaluate_market_data, load_prime_universe,
+    score_candidate, validate_candidate_history,
 )
 
 
@@ -19,6 +20,7 @@ INITIAL_CAPITAL = 100_000
 MAX_POSITIONS = 3
 POSITION_FRACTION = 0.34
 RISK_FRACTION = 0.01
+WAITING_PARAMS = {"stop": 1.0, "reward": 2.0, "holding": 10, "slippage": 0.005}
 
 
 @dataclass
@@ -143,6 +145,43 @@ def build_signal_cache(downloaded, liquid, metadata, benchmarks, dates):
     return cache
 
 
+def build_waiting_signals(downloaded, liquid, benchmarks, signal_date, capital):
+    """本番候補と同じ厳格条件を、その日までのデータだけで再現する。"""
+    if historical_market_is_risk_off(benchmarks, signal_date):
+        return []
+    ranked = []
+    for symbol in liquid:
+        history = downloaded[symbol].loc[:signal_date].tail(253)
+        candidate = score_candidate(
+            history, capital=capital, require_pullback=True,
+        )
+        if not candidate or candidate["score"] < MIN_LIVE_SCORE or candidate["volume_ratio"] < 1.1:
+            continue
+        validation = validate_candidate_history(history)
+        if not validation or not validation["passed"]:
+            continue
+        ranked.append({
+            "symbol": symbol,
+            "strategy": "waiting",
+            "score": candidate["score"],
+            "atr": candidate["atr"],
+            "validation": validation,
+        })
+    ranked.sort(key=lambda item: item["score"], reverse=True)
+    return ranked[:3]
+
+
+def build_waiting_signal_cache(downloaded, liquid, benchmarks, dates, capital):
+    cache = {}
+    for index, signal_date in enumerate(dates, start=1):
+        if index == 1 or index % 25 == 0:
+            print(f"待機型シグナル検証中: {index}/{len(dates)}営業日")
+        cache[(pd.Timestamp(signal_date), "waiting")] = build_waiting_signals(
+            downloaded, liquid, benchmarks, signal_date, capital,
+        )
+    return cache
+
+
 def simulate_period(downloaded, liquid, metadata, benchmarks, dates, strategy,
                     params, initial_capital=INITIAL_CAPITAL, signal_cache=None):
     cash, positions, trades, equity_curve = float(initial_capital), [], [], []
@@ -197,7 +236,7 @@ def simulate_period(downloaded, liquid, metadata, benchmarks, dates, strategy,
     return summarize(trades, equity_curve, initial_capital)
 
 
-def load_backtest_data(years=3):
+def load_backtest_data(years=1):
     import yfinance as yf
     symbols, metadata = load_prime_universe()
     downloaded = download_batches(symbols, period=f"{years + 1}y")
@@ -211,64 +250,48 @@ def load_backtest_data(years=3):
     return downloaded, liquid, metadata, benchmarks
 
 
-def run_backtest(capital=INITIAL_CAPITAL, years=3):
+def run_backtest(capital=INITIAL_CAPITAL, years=1):
     capital = int(float(capital))
     downloaded, liquid, metadata, benchmarks = load_backtest_data(years)
     end = min(data.index.max() for data in benchmarks.values()).tz_localize(None).normalize()
     start = end - pd.DateOffset(years=years)
     trading_dates = benchmarks["1306.T"].loc[start:end].index.tz_localize(None)
-    print(f"3年分の日次シグナルを作成中: {len(trading_dates)}営業日")
-    signal_cache = build_signal_cache(
+    print(f"待機型の直近{years}年を検証: {len(trading_dates)}営業日")
+    signal_cache = build_waiting_signal_cache(
+        downloaded, liquid, benchmarks, trading_dates, capital,
+    )
+    result = simulate_period(
         downloaded, liquid, metadata, benchmarks, trading_dates,
+        "waiting", WAITING_PARAMS, capital, signal_cache,
     )
-    folds = []
-    cursor = start
-    while cursor + pd.DateOffset(months=15) <= end:
-        train_end, test_end = cursor + pd.DateOffset(months=12), cursor + pd.DateOffset(months=15)
-        train_dates = trading_dates[(trading_dates >= cursor) & (trading_dates < train_end)]
-        test_dates = trading_dates[(trading_dates >= train_end) & (trading_dates < test_end)]
-        best = None
-        for strategy in STRATEGIES:
-            for params in PARAMETER_SETS:
-                result = simulate_period(
-                    downloaded, liquid, metadata, benchmarks, train_dates,
-                    strategy, params, capital, signal_cache,
-                )
-                score = (result["profit_factor"] >= 1, result["average_pnl"], -result["max_drawdown"])
-                if result["trades"] >= 15 and (best is None or score > best["score"]):
-                    best = {"strategy": strategy, "params": params, "train": result, "score": score}
-        if best:
-            best["test"] = simulate_period(
-                downloaded, liquid, metadata, benchmarks, test_dates,
-                best["strategy"], best["params"], capital, signal_cache,
-            )
-            best["period"] = f"{train_end:%Y-%m}〜{test_end:%Y-%m}"
-            folds.append(best)
-        cursor += pd.DateOffset(months=3)
-    combined = summarize(
-        [{"pnl": fold["test"]["total_pnl"]} for fold in folds],
-        [capital + sum(item["test"]["total_pnl"] for item in folds[:index+1]) for index in range(len(folds))],
-        capital,
-    )
-    valid_folds = sum(fold["test"]["profit_factor"] > 1 and fold["test"]["average_pnl"] > 0 for fold in folds)
-    return {"folds": folds, "valid_folds": valid_folds, "combined": combined, "universe": len(liquid)}
+    signal_days = sum(bool(value) for value in signal_cache.values())
+    return {
+        "years": years,
+        "start": start,
+        "end": end,
+        "result": result,
+        "signal_days": signal_days,
+        "trading_days": len(trading_dates),
+        "universe": len(liquid),
+    }
 
 
 def format_backtest_report(result):
-    lines = ["🧪 **SBI相対強度 3年ウォークフォワード**", ""]
-    for fold in result["folds"]:
-        test = fold["test"]
-        lines.append(
-            f"{fold['period']}｜{fold['strategy']}｜{test['trades']}件｜"
-            f"平均{test['average_pnl']:+,.0f}円｜PF {test['profit_factor']:.2f}｜DD {test['max_drawdown']:.1f}%"
-        )
-    combined = result["combined"]
-    passed = result["folds"] and result["valid_folds"] / len(result["folds"]) >= 0.7 and combined["total_pnl"] > 0
-    lines.extend([
-        "", f"通過期間：{result['valid_folds']}/{len(result['folds'])}",
-        f"検証期間合計損益：{combined['total_pnl']:+,.0f}円",
-        f"総合最大DD：{combined['max_drawdown']:.1f}%",
+    stats = result["result"]
+    passed = (
+        stats["trades"] >= 10
+        and stats["total_pnl"] > 0
+        and stats["profit_factor"] >= 1.20
+        and stats["max_drawdown"] <= 10
+    )
+    lines = [
+        "🧪 **SBI待機型 1年バックテスト**", "",
+        f"期間：{result['start']:%Y-%m-%d}〜{result['end']:%Y-%m-%d}",
+        f"対象：高流動性{result['universe']}銘柄｜シグナル発生日：{result['signal_days']}/{result['trading_days']}日",
+        f"取引：{stats['trades']}件｜勝率：{stats['win_rate']:.1f}%",
+        f"合計損益：{stats['total_pnl']:+,.0f}円｜平均：{stats['average_pnl']:+,.0f}円",
+        f"PF：{stats['profit_factor']:.2f}｜最大DD：{stats['max_drawdown']:.1f}%", "",
         "✅ 観察運用へ進める基準を通過" if passed else "❌ 観察運用の基準を満たさず",
         "⚠️ 現在の上場銘柄を使うため生存者バイアスがあります。",
-    ])
+    ]
     return "\n".join(lines)

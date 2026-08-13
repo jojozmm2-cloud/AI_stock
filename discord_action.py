@@ -288,7 +288,7 @@ def main():
         if MODE == "sbi_backtest":
             from sbi_backtest import format_backtest_report, run_backtest
 
-            result = run_backtest(SBI_CAPITAL)
+            result = run_backtest(SBI_CAPITAL, years=1)
             send_discord(format_backtest_report(result))
             return
 
