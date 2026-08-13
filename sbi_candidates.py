@@ -328,7 +328,7 @@ def score_candidate(data, capital, max_price=None):
     }
 
 
-def download_batches(symbols):
+def download_batches(symbols, period="3mo"):
     import yfinance as yf
 
     result = {}
@@ -337,7 +337,7 @@ def download_batches(symbols):
         try:
             downloaded = yf.download(
                 batch,
-                period="3mo",
+                period=period,
                 auto_adjust=True,
                 group_by="ticker",
                 threads=True,

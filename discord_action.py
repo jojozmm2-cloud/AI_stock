@@ -285,6 +285,13 @@ def main():
             diagnose_discord_connection()
             return
 
+        if MODE == "sbi_backtest":
+            from sbi_backtest import format_backtest_report, run_backtest
+
+            result = run_backtest(SBI_CAPITAL)
+            send_discord(format_backtest_report(result))
+            return
+
         # SBI短期売買プラン
         if MODE == "sbi_analysis":
             if not CODE:
