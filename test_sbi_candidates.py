@@ -1,8 +1,9 @@
 import unittest
+from datetime import date
 
 import pandas as pd
 
-from sbi_candidates import evaluate_market_data, score_candidate
+from sbi_candidates import evaluate_market_data, in_earnings_blackout, score_candidate
 
 
 class SbiCandidatesTest(unittest.TestCase):
@@ -38,6 +39,13 @@ class SbiCandidatesTest(unittest.TestCase):
         result = evaluate_market_data(pd.DataFrame({"Close": close}))
         self.assertTrue(result["weak"])
         self.assertTrue(result["sharp_drop"])
+
+    def test_earnings_blackout_uses_business_days(self):
+        earnings = date(2026, 8, 14)
+        self.assertTrue(in_earnings_blackout(earnings, date(2026, 8, 11)))
+        self.assertTrue(in_earnings_blackout(earnings, date(2026, 8, 17)))
+        self.assertFalse(in_earnings_blackout(earnings, date(2026, 8, 10)))
+        self.assertFalse(in_earnings_blackout(earnings, date(2026, 8, 18)))
 
 
 if __name__ == "__main__":

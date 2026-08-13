@@ -1,8 +1,10 @@
 from io import BytesIO
+from datetime import date, datetime
 from pathlib import Path
 import time
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -18,6 +20,8 @@ RISK_RATE = 0.01
 REWARD_MULTIPLE = 2.0
 TAX_RATE = 0.20315
 MARKET_BENCHMARKS = {"日経平均": "^N225", "TOPIX": "^TOPX"}
+EARNINGS_CHECK_POOL = 30
+JST = ZoneInfo("Asia/Tokyo")
 
 
 class CandidateList(list):
@@ -166,6 +170,42 @@ def get_market_regime():
     }
 
 
+def in_earnings_blackout(earnings_date, today=None):
+    if not earnings_date:
+        return False
+    today = today or datetime.now(JST).date()
+    if isinstance(earnings_date, datetime):
+        earnings_date = earnings_date.date()
+    start = (pd.Timestamp(earnings_date) - pd.offsets.BDay(3)).date()
+    end = (pd.Timestamp(earnings_date) + pd.offsets.BDay(1)).date()
+    return start <= today <= end
+
+
+def get_next_earnings_date(symbol, today=None):
+    """Yahoo Financeから直近の決算予定日を取得する。取れない場合はNone。"""
+    import yfinance as yf
+
+    today = today or datetime.now(JST).date()
+    try:
+        calendar = yf.Ticker(symbol).calendar
+        if not calendar:
+            return None
+        raw_dates = calendar.get("Earnings Date") or calendar.get("EarningsDate")
+        if not isinstance(raw_dates, (list, tuple)):
+            raw_dates = [raw_dates]
+        dates = []
+        for raw_date in raw_dates:
+            if raw_date is None:
+                continue
+            value = pd.Timestamp(raw_date).date()
+            if value >= today - pd.Timedelta(days=1):
+                dates.append(value)
+        return min(dates) if dates else None
+    except Exception as error:
+        print(f"決算予定日取得失敗 {symbol}: {error}")
+        return None
+
+
 def score_candidate(data, capital, max_price=None):
     data = data.dropna(subset=["Close", "High", "Low", "Volume"])
     if len(data) < 25:
@@ -311,8 +351,19 @@ def get_sbi_candidates(capital, limit=5, max_price=None, symbols_filename=None):
         candidates,
         key=lambda item: (item["score"], item["take_profit_net_profit"], item["average_turnover"]),
         reverse=True,
-    )[:effective_limit]
-    return CandidateList(ranked, market=market)
+    )
+    earnings_checked = []
+    for candidate in ranked[:EARNINGS_CHECK_POOL]:
+        earnings_date = get_next_earnings_date(candidate["code"])
+        if in_earnings_blackout(earnings_date):
+            print(f"決算前後のため候補除外: {candidate['code']} ({earnings_date})")
+            continue
+        candidate["earnings_date"] = earnings_date
+        candidate["earnings_checked"] = earnings_date is not None
+        earnings_checked.append(candidate)
+        if len(earnings_checked) >= effective_limit:
+            break
+    return CandidateList(earnings_checked, market=market)
 
 
 def create_sbi_candidates_embed(candidates, capital, max_price=None):
@@ -320,6 +371,11 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
     for index, item in enumerate(candidates, start=1):
         code = item["code"].replace(".T", "")
         reason_text = "・".join(item["reasons"])
+        earnings_text = (
+            f"次回決算予定：{item['earnings_date']:%Y-%m-%d}（除外期間外）"
+            if item.get("earnings_checked")
+            else "次回決算予定：取得できず（要確認）"
+        )
         fields.append({
             "name": f"{index}. {item.get('name', '会社名未登録')}（{code}）｜{item['status']}",
             "value": (
@@ -334,6 +390,7 @@ def create_sbi_candidates_embed(candidates, capital, max_price=None):
                 f"税引後RR：{item['reward_ratio']:.2f}倍　利確時税引後騰落率：{item['target_net_return']:.2f}%\n"
                 f"RSI：{item['rsi']:.1f}　5日騰落：{item['change_5d']:+.2f}%　"
                 f"出来高倍率：{item['volume_ratio']:.2f}倍\n"
+                f"{earnings_text}\n"
                 f"詳しく見る：`/sbi 分析 code:{code}`"
             ),
             "inline": False,
