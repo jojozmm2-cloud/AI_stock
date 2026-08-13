@@ -29,6 +29,45 @@ CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID", "")
 BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 
 
+def discord_headers():
+    return {
+        "Authorization": f"Bot {BOT_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+
+def discord_request(method, path, **kwargs):
+    response = requests.request(
+        method,
+        f"https://discord.com/api/v10{path}",
+        headers=discord_headers(),
+        timeout=30,
+        **kwargs,
+    )
+    if not response.ok:
+        raise RuntimeError(
+            f"Discord API {method} {path} failed: "
+            f"HTTP {response.status_code} {response.text}"
+        )
+    return response
+
+
+def diagnose_discord_connection():
+    bot = discord_request("GET", "/users/@me").json()
+    print(f"Discord Bot: {bot.get('username')} (id={bot.get('id')})")
+    channel = discord_request("GET", f"/channels/{CHANNEL_ID}").json()
+    print(
+        f"Discord Channel: {channel.get('name')} "
+        f"(id={channel.get('id')}, guild_id={channel.get('guild_id')})"
+    )
+    discord_request(
+        "POST",
+        f"/channels/{CHANNEL_ID}/messages",
+        json={"content": "✅ AI Stock Tool 接続テスト成功"},
+    )
+    print("Discord test message sent.")
+
+
 def send_discord(message):
     url = (
         f"https://discord.com/api/v10/"
@@ -235,6 +274,10 @@ def main():
         raise RuntimeError("Discord Bot Tokenがありません")
 
     try:
+        if MODE == "discord_diagnostic":
+            diagnose_discord_connection()
+            return
+
         # SBI短期売買プラン
         if MODE == "sbi_analysis":
             if not CODE:
