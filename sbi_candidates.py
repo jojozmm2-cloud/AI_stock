@@ -240,7 +240,7 @@ def get_next_s_stock_execution(now=None):
     }
 
 
-def score_candidate(data, capital, max_price=None):
+def score_candidate(data, capital, max_price=None, require_pullback=False):
     data = data.dropna(subset=["Close", "High", "Low", "Volume"])
     if len(data) < 25:
         return None
@@ -256,6 +256,7 @@ def score_candidate(data, capital, max_price=None):
     ma5 = float(close.tail(5).mean())
     ma20 = float(close.tail(20).mean())
     change_5d = float((price / close.iloc[-6] - 1) * 100)
+    change_1d = float((price / close.iloc[-2] - 1) * 100)
     average_volume = float(volume.iloc[-21:-1].mean())
     volume_ratio = float(volume.iloc[-1] / average_volume) if average_volume > 0 else 0
     rsi = calculate_rsi(close)
@@ -265,6 +266,19 @@ def score_candidate(data, capital, max_price=None):
 
     # S株は約定タイミングが限定されるため、過熱・急騰・下降トレンドを候補から外す。
     if rsi > 70 or not (price > ma20 and ma5 > ma20) or not (-1 <= change_5d <= 8):
+        return None
+    ma5_distance_atr = (price - ma5) / atr
+    day_range = float(data["High"].iloc[-1] - data["Low"].iloc[-1])
+    close_location = (
+        float((price - data["Low"].iloc[-1]) / day_range)
+        if day_range > 0 else 0.5
+    )
+    if require_pullback and not (
+        1 <= change_5d <= 4
+        and -0.25 <= ma5_distance_atr <= 1.0
+        and change_1d <= 2.5
+        and close_location <= 0.8
+    ):
         return None
 
     assumed_entry_price = price * (1 + ADVERSE_ENTRY_SLIPPAGE)
@@ -311,6 +325,10 @@ def score_candidate(data, capital, max_price=None):
         "score": score,
         "rsi": rsi,
         "change_5d": change_5d,
+        "change_1d": change_1d,
+        "atr": atr,
+        "ma5_distance_atr": ma5_distance_atr,
+        "close_location": close_location,
         "volume_ratio": volume_ratio,
         "average_turnover": turnover,
         "shares": shares,
