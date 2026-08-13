@@ -12,12 +12,15 @@ class TdnetTest(unittest.TestCase):
         html = '''<table><tr>
         <td class="kjTime">15:30</td><td class="kjCode">12340</td>
         <td class="kjName">テスト株式会社</td>
-        <td class="kjTitle"><a href="./140120260814000001.pdf">業績予想の上方修正</a></td>
+        <td class="kjTitle"><a href="140120260814000001.pdf">業績予想の上方修正</a></td>
         </tr></table>'''
         result = parse_tdnet_html(html, date(2026, 8, 14))
         self.assertEqual(result[0]["code"], "1234")
         self.assertIn("上方修正", result[0]["title"])
-        self.assertTrue(result[0]["url"].startswith("https://"))
+        self.assertEqual(
+            result[0]["url"],
+            "https://www.release.tdnet.info/inbs/140120260814000001.pdf",
+        )
 
     def test_negative_takes_priority(self):
         self.assertEqual(classify_disclosure("業績予想の下方修正及び減配"), "negative")

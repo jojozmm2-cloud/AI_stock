@@ -3,6 +3,7 @@ from html import unescape
 from io import BytesIO
 import re
 from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 
@@ -48,10 +49,7 @@ def parse_tdnet_html(html, disclosed_on):
             continue
         link = re.search(r'<a[^>]+href=["\']([^"\']+)["\']', row, flags=re.I)
         url = link.group(1) if link else ""
-        if url.startswith("./"):
-            url = f"{TDNET_BASE}/{url[2:]}"
-        elif url.startswith("/"):
-            url = f"https://www.release.tdnet.info{url}"
+        url = urljoin(f"{TDNET_BASE}/", url)
         disclosures.append({
             "date": disclosed_on,
             "time": _cell(row, "kjTime"),
@@ -119,10 +117,12 @@ def analyze_disclosure_document(item, text):
 
 def enrich_disclosures(items, max_documents=20):
     checked = 0
+    attempted = 0
     for item in items:
-        if checked >= max_documents or not any(term in item["title"] for term in HIGH_VALUE_TERMS):
+        if attempted >= max_documents or not any(term in item["title"] for term in HIGH_VALUE_TERMS):
             item.setdefault("document_checked", False)
             continue
+        attempted += 1
         try:
             text = extract_pdf_text(item["url"])
             item.update(analyze_disclosure_document(item, text))
@@ -180,6 +180,8 @@ def create_tdnet_test_embed(disclosures):
     enrich_disclosures(relevant, max_documents=30)
     positive = [item for item in all_items if item["sentiment"] == "positive"]
     negative = [item for item in all_items if item["sentiment"] == "negative"]
+    attempted = [item for item in relevant if item.get("document_checked") or item.get("document_error")]
+    failures = [item for item in attempted if item.get("document_error")]
 
     def format_items(items, empty):
         if not items:
@@ -198,12 +200,18 @@ def create_tdnet_test_embed(disclosures):
             "JPXの適時開示情報を直近7日分確認しました。\n"
             f"取得：**{len(all_items)}件／{len(disclosures)}銘柄**　"
             f"好材料候補：{len(positive)}件　注意材料：{len(negative)}件\n"
-            f"PDF本文確認：**{sum(bool(item.get('document_checked')) for item in relevant)}件**"
+            f"PDF本文確認：**{sum(bool(item.get('document_checked')) for item in relevant)}件**／"
+            f"試行{len(attempted)}件　失敗{len(failures)}件"
         ),
         "color": 0x1D5FA7,
         "fields": [
             {"name": "🟢 好材料候補", "value": format_items(positive, "該当なし"), "inline": False},
             {"name": "🔴 注意材料", "value": format_items(negative, "該当なし"), "inline": False},
+            *([{
+                "name": "⚠️ PDF取得エラー",
+                "value": f"{failures[0]['url']}\n{failures[0]['document_error'][:500]}",
+                "inline": False,
+            }] if failures else []),
         ],
         "footer": {"text": "公式PDF本文を優先し、本文未確認の資料は売買根拠に使用しません。"},
     }
