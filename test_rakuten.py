@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 import pandas as pd
 from rakuten_backtest import run_backtest
 from rakuten_trade_plan import calculate_rakuten_trade_plan
@@ -17,6 +18,10 @@ class RakutenTests(unittest.TestCase):
         result = run_backtest(pd.DataFrame({"Close": prices}))
         self.assertIn("final_value", result)
         self.assertGreaterEqual(result["trade_count"], 1)
+
+    def test_non_supported_rakuten_group_is_not_candidate(self):
+        symbols = Path("rakuten_kabumini_symbols.txt").read_text(encoding="utf-8").splitlines()
+        self.assertNotIn("4755.T", symbols)
 
 
 if __name__ == "__main__":
