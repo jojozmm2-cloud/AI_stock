@@ -44,6 +44,14 @@ def evaluate_short_term_candidate(code, data):
     rsi = _calculate_rsi(close)
     average_volume = float(volume.iloc[-21:-1].mean())
     volume_ratio = float(volume.iloc[-1] / average_volume) if average_volume else 0
+    previous_close = close.shift(1)
+    import pandas as pd
+    true_range = pd.concat([
+        data["High"] - data["Low"],
+        (data["High"] - previous_close).abs(),
+        (data["Low"] - previous_close).abs(),
+    ], axis=1).max(axis=1)
+    atr = float(true_range.tail(14).mean())
 
     score = 0
     positive_periods = sum(periods[key]["return_rate"] > 0 for key in periods)
@@ -97,6 +105,14 @@ def evaluate_short_term_candidate(code, data):
         "outperformed_periods": outperformed_periods,
         "reasons": reasons,
         "periods": periods,
+        "market_date": data.index[-1].date().isoformat(),
+        "latest_open": float(data["Open"].iloc[-1]),
+        "latest_high": float(data["High"].iloc[-1]),
+        "latest_low": float(data["Low"].iloc[-1]),
+        "latest_close": price,
+        "ma5": ma5,
+        "ma20": ma20,
+        "atr": atr,
     }
 
 

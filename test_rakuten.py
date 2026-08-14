@@ -6,9 +6,34 @@ from rakuten_backtest import run_backtest, run_one_week_backtest
 from rakuten_trade_plan import calculate_rakuten_trade_plan
 from rakuten_market_data import StaleMarketDataError, ensure_fresh_quote
 from rakuten_short_term import evaluate_short_term_candidate
+from rakuten_paper_trade import update_paper_state
 
 
 class RakutenTests(unittest.TestCase):
+    def _paper_candidate(self, market_date, score=80, **overrides):
+        item = {"code": "8411.T", "name": "みずほ", "score": score,
+                "market_date": market_date, "latest_open": 1000, "latest_high": 1010,
+                "latest_low": 990, "latest_close": 1005, "ma20": 980, "atr": 20}
+        item.update(overrides)
+        return item
+
+    def test_paper_trade_waits_for_next_business_day_open(self):
+        state = {"initial_capital": 30000.0, "cash": 30000.0, "pending": None,
+                 "position": None, "closed_trades": [], "last_market_date": None}
+        state, _ = update_paper_state(state, [self._paper_candidate("2026-08-13")])
+        self.assertIsNotNone(state["pending"])
+        self.assertIsNone(state["position"])
+        state, _ = update_paper_state(state, [self._paper_candidate("2026-08-14")])
+        self.assertIsNone(state["pending"])
+        self.assertIsNotNone(state["position"])
+
+    def test_paper_trade_does_not_buy_monitor_candidate(self):
+        state = {"initial_capital": 30000.0, "cash": 30000.0, "pending": None,
+                 "position": None, "closed_trades": [], "last_market_date": None}
+        state, events = update_paper_state(state, [self._paper_candidate("2026-08-14", score=64)])
+        self.assertIsNone(state["pending"])
+        self.assertIn("現金で待機", events[0])
+
     def test_plan_never_exceeds_capital(self):
         plan = calculate_rakuten_trade_plan(1000, 30, capital=30_000)
         self.assertLessEqual(plan["investment"], 30_000)
