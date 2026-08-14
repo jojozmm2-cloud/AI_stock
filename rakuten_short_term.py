@@ -3,7 +3,7 @@
 from datetime import timedelta
 from pathlib import Path
 
-from rakuten_backtest import run_backtest
+from rakuten_backtest import run_one_week_backtest
 from rakuten_market_data import ensure_recent_daily_data
 from rakuten_names import RAKUTEN_NAMES
 
@@ -31,7 +31,7 @@ def evaluate_short_term_candidate(code, data):
     periods = {}
     for years in (1, 3, 5):
         sample = _slice_years(data, years)
-        result = run_backtest(sample)
+        result = run_one_week_backtest(sample)
         result["buy_hold_return"] = _buy_and_hold_return(sample)
         periods[f"{years}y"] = result
 
@@ -120,6 +120,7 @@ def create_short_term_candidates_embed(results):
             "value": (
                 f"参考価格 {item['price']:,.2f}円 / 5日 {item['change_5d']:+.2f}% / RSI {item['rsi']:.1f}\n"
                 f"1年検証 {one_year['return_rate']:+.2f}% / 最大下落 {one_year['max_drawdown']:.2f}%\n"
+                f"1週間型 {one_year['trade_count']}回 / 勝率 {one_year['win_rate']:.1f}% / 平均保有 {one_year['average_holding_days']:.1f}日\n"
                 f"安定性 {item['positive_periods']}/3期間 / 買いっぱなし超え {item['outperformed_periods']}/3期間\n"
                 f"理由: {reasons}"
             ),
@@ -127,7 +128,7 @@ def create_short_term_candidates_embed(results):
         })
     return {
         "title": "楽天かぶミニ 短期候補判定",
-        "description": "過去の再現性と現在の短期条件を分けて採点しています。短期候補でも即購入ではなく、楽天画面の現在価格で最終確認してください。",
+        "description": "3万円・基本5営業日で検証し、上昇条件が続く場合だけ最長10営業日まで延長します。短期候補でも楽天画面の現在価格で最終確認してください。",
         "color": 0xBF0000,
         "fields": fields,
         "footer": {"text": "過去の成績は将来の利益を保証しません。古いデータは通知しません。"},
@@ -145,4 +146,3 @@ def _calculate_rsi(close, period=14):
     if latest_loss == 0:
         return 100.0 if latest_gain > 0 else 50.0
     return float((100 - 100 / (1 + gain / loss)).iloc[-1])
-
