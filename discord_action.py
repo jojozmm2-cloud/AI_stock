@@ -13,6 +13,7 @@ from rakuten_candidates import create_rakuten_candidates_embed, get_rakuten_cand
 from rakuten_trade_plan import create_rakuten_trade_plan_embed, get_rakuten_trade_plan
 from rakuten_backtest import backtest_symbol, create_backtest_embed
 from rakuten_short_term import create_short_term_candidates_embed, get_short_term_candidates
+from rakuten_paper_trade import load_paper_state, save_paper_state, update_paper_state, create_paper_trade_embed
 
 
 MODE = os.getenv("MODE", "analysis")
@@ -26,6 +27,7 @@ SBI_CAPITAL = os.getenv("SBI_CAPITAL", "0")
 SBI_WATCHLIST_JSON = os.getenv("SBI_WATCHLIST_JSON", "[]")
 RAKUTEN_CAPITAL = os.getenv("RAKUTEN_CAPITAL", "30000")
 RAKUTEN_SPREAD_RATE = float(os.getenv("RAKUTEN_SPREAD_RATE", "0.0022") or 0.0022)
+PAPER_STATE_PATH = os.getenv("PAPER_STATE_PATH", "data/rakuten_paper_state.json")
 
 # 6501 → 6501.T のように日本株コードを自動変換
 if len(CODE) == 4 and CODE.isdigit():
@@ -262,6 +264,15 @@ def main():
         if MODE == "rakuten_shortlist":
             results = get_short_term_candidates()
             send_discord_embed(create_short_term_candidates_embed(results))
+            return
+
+        if MODE == "rakuten_paper":
+            results = get_short_term_candidates(limit=100)
+            send_discord_embed(create_short_term_candidates_embed(results[:10]))
+            state = load_paper_state(PAPER_STATE_PATH, RAKUTEN_CAPITAL)
+            state, events = update_paper_state(state, results, RAKUTEN_SPREAD_RATE)
+            save_paper_state(PAPER_STATE_PATH, state)
+            send_discord_embed(create_paper_trade_embed(state, events))
             return
 
         # SBI短期売買プラン

@@ -18,6 +18,14 @@ jobs:
       - name: リポジトリを取得
         uses: actions/checkout@v4
 
+      - name: 紙上取引記録を復元
+        uses: actions/cache/restore@v4
+        with:
+          path: data/rakuten_paper_state.json
+          key: rakuten-paper-${{ github.run_id }}
+          restore-keys: |
+            rakuten-paper-
+
       - name: Pythonを準備
         uses: actions/setup-python@v5
         with:
@@ -28,11 +36,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install yfinance pandas ta requests feedparser openai python-dotenv
 
-      - name: 楽天かぶミニ短期候補を判定
+      - name: 楽天かぶミニ候補判定と紙上取引
         env:
-          MODE: rakuten_shortlist
+          MODE: rakuten_paper
           DISCORD_CHANNEL_ID: ${{ vars.DISCORD_CHANNEL_ID }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           RAKUTEN_CAPITAL: "30000"
           RAKUTEN_SPREAD_RATE: "0.0022"
+          PAPER_STATE_PATH: data/rakuten_paper_state.json
         run: python discord_action.py
+
+      - name: 紙上取引記録を保存
+        if: always() && hashFiles('data/rakuten_paper_state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: data/rakuten_paper_state.json
+          key: rakuten-paper-${{ github.run_id }}
