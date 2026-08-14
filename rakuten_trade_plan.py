@@ -2,6 +2,7 @@
 import math
 from rakuten_config import DEFAULT_CAPITAL, DEFAULT_REWARD_RISK_RATIO, DEFAULT_RISK_RATE, DEFAULT_SPREAD_RATE, DEFAULT_TAX_RATE
 from rakuten_names import RAKUTEN_NAMES
+from rakuten_market_data import TOKYO, ensure_fresh_quote
 from sbi_analysis import calculate_atr, normalize_code
 
 
@@ -31,18 +32,22 @@ def calculate_rakuten_trade_plan(current_price, atr, capital=DEFAULT_CAPITAL, sp
 def get_rakuten_trade_plan(code, capital=DEFAULT_CAPITAL, spread_rate=DEFAULT_SPREAD_RATE):
     import yfinance as yf
     code = normalize_code(code)
-    data = yf.Ticker(code).history(period="3mo", auto_adjust=True).dropna(subset=["High", "Low", "Close"])
-    if len(data) < 20:
+    ticker = yf.Ticker(code)
+    daily_data = ticker.history(period="3mo", interval="1d", auto_adjust=True).dropna(subset=["High", "Low", "Close"])
+    quote_data = ticker.history(period="1d", interval="1m", auto_adjust=True).dropna(subset=["Close"])
+    quote_time = ensure_fresh_quote(quote_data)
+    if len(daily_data) < 20:
         raise ValueError("売買プランに必要な株価データを取得できませんでした")
-    plan = calculate_rakuten_trade_plan(float(data["Close"].iloc[-1]), calculate_atr(data), capital, spread_rate)
+    plan = calculate_rakuten_trade_plan(float(quote_data["Close"].iloc[-1]), calculate_atr(daily_data), capital, spread_rate)
     plan["code"] = code
+    plan["price_timestamp"] = quote_time.astimezone(TOKYO).isoformat(timespec="minutes")
     return plan
 
 
 def create_rakuten_trade_plan_embed(plan):
     code = plan["code"]
     name = RAKUTEN_NAMES.get(code, "会社名未登録")
-    return {"title": f"楽天かぶミニ 売買プラン：{name}（{code.replace('.T', '')}）", "description": "1株単位・リアルタイム取引を想定した試算です。", "color": 0xBF0000, "fields": [
+    return {"title": f"楽天かぶミニ 売買プラン：{name}（{code.replace('.T', '')}）", "description": f"1株単位・リアルタイム取引を想定した試算です。\n株価取得時刻: {plan['price_timestamp']}", "color": 0xBF0000, "fields": [
         {"name": "購入プラン", "value": f"{plan['shares']}株 / 約 {plan['investment']:,.0f}円", "inline": False},
         {"name": "想定買い約定価格", "value": f"{plan['entry_price']:,.2f}円", "inline": True},
         {"name": "利確の表示価格", "value": f"{plan['take_profit_quote']:,.2f}円", "inline": True},
@@ -51,4 +56,3 @@ def create_rakuten_trade_plan_embed(plan):
         {"name": "税引後の想定利益", "value": f"約 {plan['net_profit']:,.0f}円", "inline": True},
         {"name": "スプレッド想定コスト", "value": f"約 {plan['spread_cost_at_target']:,.0f}円", "inline": True}],
         "footer": {"text": f"スプレッドは売買それぞれ {plan['spread_rate'] * 100:.2f}% として試算。実際の約定を保証しません。"}}
-

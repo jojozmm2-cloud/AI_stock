@@ -11,6 +11,7 @@ from sbi_timing import create_sbi_timing_embed, get_sbi_timing
 from sbi_auto_monitor import get_auto_monitor_embeds
 from rakuten_candidates import create_rakuten_candidates_embed, get_rakuten_candidates
 from rakuten_trade_plan import create_rakuten_trade_plan_embed, get_rakuten_trade_plan
+from rakuten_backtest import backtest_symbol, create_backtest_embed
 
 
 MODE = os.getenv("MODE", "analysis")
@@ -249,6 +250,12 @@ def main():
                 raise RuntimeError("銘柄コードがありません")
             plan = get_rakuten_trade_plan(CODE, RAKUTEN_CAPITAL, RAKUTEN_SPREAD_RATE)
             send_discord_embed(create_rakuten_trade_plan_embed(plan))
+            return
+
+        if MODE == "rakuten_backtest":
+            from rakuten_candidates import load_symbols
+            results = [backtest_symbol(symbol) for symbol in load_symbols("rakuten_kabumini_symbols.txt")]
+            send_discord_embed(create_backtest_embed(results))
             return
 
         # SBI短期売買プラン
