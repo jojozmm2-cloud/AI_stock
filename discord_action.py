@@ -12,6 +12,7 @@ from sbi_auto_monitor import get_auto_monitor_embeds
 from rakuten_candidates import create_rakuten_candidates_embed, get_rakuten_candidates
 from rakuten_trade_plan import create_rakuten_trade_plan_embed, get_rakuten_trade_plan
 from rakuten_backtest import backtest_symbol, create_backtest_embed
+from rakuten_short_term import create_short_term_candidates_embed, get_short_term_candidates
 
 
 MODE = os.getenv("MODE", "analysis")
@@ -256,6 +257,11 @@ def main():
             from rakuten_candidates import load_symbols
             results = [backtest_symbol(symbol) for symbol in load_symbols("rakuten_kabumini_symbols.txt")]
             send_discord_embed(create_backtest_embed(results))
+            return
+
+        if MODE == "rakuten_shortlist":
+            results = get_short_term_candidates()
+            send_discord_embed(create_short_term_candidates_embed(results))
             return
 
         # SBI短期売買プラン

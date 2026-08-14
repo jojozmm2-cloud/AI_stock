@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from rakuten_backtest import run_backtest
 from rakuten_trade_plan import calculate_rakuten_trade_plan
 from rakuten_market_data import StaleMarketDataError, ensure_fresh_quote
+from rakuten_short_term import evaluate_short_term_candidate
 
 
 class RakutenTests(unittest.TestCase):
@@ -36,6 +37,14 @@ class RakutenTests(unittest.TestCase):
         result = run_backtest(pd.DataFrame({"Close": prices}))
         self.assertIn("max_drawdown", result)
         self.assertIn("win_rate", result)
+
+    def test_short_term_evaluation_has_separate_evidence(self):
+        dates = pd.date_range(end=datetime.now(timezone.utc), periods=1300, freq="B")
+        close = pd.Series([100 + index * 0.05 for index in range(len(dates))], index=dates)
+        data = pd.DataFrame({"Open": close, "High": close * 1.01, "Low": close * .99, "Close": close, "Volume": 1_000_000}, index=dates)
+        result = evaluate_short_term_candidate("9432.T", data)
+        self.assertEqual(set(result["periods"]), {"1y", "3y", "5y"})
+        self.assertIn(result["status"], {"短期候補", "監視候補", "見送り"})
 
 
 if __name__ == "__main__":
