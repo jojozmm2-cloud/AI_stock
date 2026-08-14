@@ -32,31 +32,44 @@ def run_one_week_backtest(
     true_range = (high - low).to_frame("range").join((high - previous_close).abs().rename("high_close")).join((low - previous_close).abs().rename("low_close")).max(axis=1)
     atr = true_range.rolling(14).mean()
 
-    cash, position, trades, equity_curve = float(capital), None, [], []
+    cash, position, pending_signal, trades, equity_curve = float(capital), None, None, [], []
     for index in range(20, len(frame)):
         quote = close.iloc[index]
         if position is None:
-            signal = ma5.iloc[index] > ma20.iloc[index] and 40 <= rsi.iloc[index] <= 68
-            if not signal:
+            if pending_signal is None:
+                signal = ma5.iloc[index] > ma20.iloc[index] and 40 <= rsi.iloc[index] <= 68
+                if signal:
+                    pending_signal = {
+                        "signal_index": index,
+                        "stop_distance": max(float(atr.iloc[index]), quote * 0.02),
+                    }
                 equity_curve.append(cash)
                 continue
-            entry_quote = quote
+            entry_quote = float(frame["Open"].iloc[index])
             entry_price = entry_quote * (1 + spread_rate)
-            stop_distance = max(float(atr.iloc[index]), entry_quote * 0.02)
+            stop_distance = max(pending_signal["stop_distance"], entry_quote * 0.02)
             stop_quote = entry_quote - stop_distance
             target_quote = entry_quote + stop_distance * 2
             loss_per_share = entry_price - stop_quote * (1 - spread_rate)
             shares = min(int(cash // entry_price), int((capital * risk_rate) // loss_per_share))
             if shares <= 0:
+                pending_signal = None
                 equity_curve.append(cash)
                 continue
             entry_cost = shares * entry_price
             cash -= entry_cost
-            position = {"entry_index": index, "entry_price": entry_price, "entry_cost": entry_cost, "shares": shares, "stop_quote": stop_quote, "target_quote": target_quote}
-        else:
+            position = {"signal_index": pending_signal["signal_index"], "entry_index": index, "entry_price": entry_price, "entry_cost": entry_cost, "shares": shares, "stop_quote": stop_quote, "target_quote": target_quote}
+            pending_signal = None
+
+        if position is not None:
             held_days = index - position["entry_index"] + 1
             exit_quote, reason = None, None
-            if low.iloc[index] <= position["stop_quote"]:
+            day_open = float(frame["Open"].iloc[index])
+            if day_open <= position["stop_quote"]:
+                exit_quote, reason = day_open, "窓あけ損切り"
+            elif day_open >= position["target_quote"]:
+                exit_quote, reason = day_open, "窓あけ利確"
+            elif low.iloc[index] <= position["stop_quote"]:
                 exit_quote, reason = position["stop_quote"], "損切り"
             elif high.iloc[index] >= position["target_quote"]:
                 exit_quote, reason = position["target_quote"], "利確"
@@ -69,7 +82,7 @@ def run_one_week_backtest(
                 profit = proceeds - position["entry_cost"]
                 tax = max(profit, 0) * tax_rate
                 cash += proceeds - tax
-                trades.append({"entry_date": frame.index[position["entry_index"]], "exit_date": frame.index[index], "holding_days": held_days, "shares": position["shares"], "profit_before_tax": profit, "tax": tax, "reason": reason})
+                trades.append({"signal_date": frame.index[position["signal_index"]], "entry_date": frame.index[position["entry_index"]], "exit_date": frame.index[index], "holding_days": held_days, "shares": position["shares"], "profit_before_tax": profit, "tax": tax, "reason": reason})
                 position = None
         marked_value = cash + (position["shares"] * quote * (1 - spread_rate) if position else 0)
         equity_curve.append(marked_value)
@@ -79,7 +92,7 @@ def run_one_week_backtest(
         profit = proceeds - position["entry_cost"]
         tax = max(profit, 0) * tax_rate
         cash += proceeds - tax
-        trades.append({"entry_date": frame.index[position["entry_index"]], "exit_date": frame.index[-1], "holding_days": len(frame) - position["entry_index"], "shares": position["shares"], "profit_before_tax": profit, "tax": tax, "reason": "検証終了"})
+        trades.append({"signal_date": frame.index[position["signal_index"]], "entry_date": frame.index[position["entry_index"]], "exit_date": frame.index[-1], "holding_days": len(frame) - position["entry_index"], "shares": position["shares"], "profit_before_tax": profit, "tax": tax, "reason": "検証終了"})
 
     peak, max_drawdown = float(capital), 0.0
     for value in equity_curve:

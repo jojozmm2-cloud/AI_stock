@@ -54,6 +54,14 @@ class RakutenTests(unittest.TestCase):
         self.assertTrue(all(trade["holding_days"] <= 10 for trade in result["trades"]))
         self.assertLessEqual(result["max_drawdown"], 10)
 
+    def test_one_week_strategy_buys_after_signal_day(self):
+        dates = pd.date_range(end=datetime.now(timezone.utc), periods=120, freq="B")
+        close = pd.Series([100 + index * .15 for index in range(len(dates))], index=dates)
+        data = pd.DataFrame({"Open": close * 1.001, "High": close * 1.005, "Low": close * .995, "Close": close, "Volume": 1_000_000}, index=dates)
+        result = run_one_week_backtest(data)
+        self.assertTrue(result["trades"])
+        self.assertTrue(all(trade["entry_date"] > trade["signal_date"] for trade in result["trades"]))
+
 
 if __name__ == "__main__":
     unittest.main()
