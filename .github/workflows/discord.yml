@@ -43,6 +43,18 @@ on:
         default: "[]"
         type: string
 
+      rakuten_capital:
+        description: "楽天かぶミニの運用資金"
+        required: false
+        default: "30000"
+        type: string
+
+      rakuten_spread_rate:
+        description: "片道スプレッド率（0.0022 = 0.22%）"
+        required: false
+        default: "0.0022"
+        type: string
+
 
 jobs:
   analyze:
@@ -71,6 +83,8 @@ jobs:
           REALIZED_PROFIT: ${{ inputs.realized_profit }}
           SBI_CAPITAL: ${{ inputs.sbi_capital }}
           SBI_WATCHLIST_JSON: ${{ inputs.sbi_watchlist_json }}
+          RAKUTEN_CAPITAL: ${{ inputs.rakuten_capital }}
+          RAKUTEN_SPREAD_RATE: ${{ inputs.rakuten_spread_rate }}
 
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

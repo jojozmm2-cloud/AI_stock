@@ -9,6 +9,8 @@ from sbi_candidates import create_sbi_candidates_embed, get_sbi_candidates
 from sbi_watchlist import create_watchlist_embed, get_watchlist_status
 from sbi_timing import create_sbi_timing_embed, get_sbi_timing
 from sbi_auto_monitor import get_auto_monitor_embeds
+from rakuten_candidates import create_rakuten_candidates_embed, get_rakuten_candidates
+from rakuten_trade_plan import create_rakuten_trade_plan_embed, get_rakuten_trade_plan
 
 
 MODE = os.getenv("MODE", "analysis")
@@ -20,6 +22,8 @@ REALIZED_PROFIT = float(
 )
 SBI_CAPITAL = os.getenv("SBI_CAPITAL", "0")
 SBI_WATCHLIST_JSON = os.getenv("SBI_WATCHLIST_JSON", "[]")
+RAKUTEN_CAPITAL = os.getenv("RAKUTEN_CAPITAL", "30000")
+RAKUTEN_SPREAD_RATE = float(os.getenv("RAKUTEN_SPREAD_RATE", "0.0022") or 0.0022)
 
 # 6501 → 6501.T のように日本株コードを自動変換
 if len(CODE) == 4 and CODE.isdigit():
@@ -235,6 +239,18 @@ def main():
         raise RuntimeError("Discord Bot Tokenがありません")
 
     try:
+        if MODE == "rakuten_candidates":
+            candidates = get_rakuten_candidates(RAKUTEN_CAPITAL)
+            send_discord_embed(create_rakuten_candidates_embed(candidates, RAKUTEN_CAPITAL))
+            return
+
+        if MODE == "rakuten_plan":
+            if not CODE:
+                raise RuntimeError("銘柄コードがありません")
+            plan = get_rakuten_trade_plan(CODE, RAKUTEN_CAPITAL, RAKUTEN_SPREAD_RATE)
+            send_discord_embed(create_rakuten_trade_plan_embed(plan))
+            return
+
         # SBI短期売買プラン
         if MODE == "sbi_analysis":
             if not CODE:
