@@ -11,7 +11,8 @@ def load_settings():
     except (FileNotFoundError, json.JSONDecodeError):
         return {
             "notification_enabled": True,
-            "dark_mode": False
+            "dark_mode": False,
+            "trading_mode": "standard"
         }
 
 def save_settings_to_file(settings_data):
@@ -25,7 +26,7 @@ def save_settings_to_file(settings_data):
 def show_settings(window):
     settings = tk.Toplevel(window)
     settings.title("設定")
-    settings.geometry("350x300")
+    settings.geometry("350x430")
 
     tk.Label(
         settings,
@@ -57,10 +58,35 @@ def show_settings(window):
 
     dark_mode_check.pack(pady=10)
 
+    trading_mode_var = tk.StringVar(
+        value=current_settings.get("trading_mode", "standard")
+    )
+
+    tk.Label(
+        settings,
+        text="運用モード",
+        font=("Arial", 11, "bold")
+    ).pack(pady=(10, 5))
+
+    tk.Radiobutton(
+        settings,
+        text="通常モード",
+        variable=trading_mode_var,
+        value="standard"
+    ).pack()
+
+    tk.Radiobutton(
+        settings,
+        text="SBI短期売買支援AI",
+        variable=trading_mode_var,
+        value="sbi"
+    ).pack()
+
     def save_settings():
         settings_data = {
             "notification_enabled": notification_var.get(),
-            "dark_mode": dark_mode_var.get()
+            "dark_mode": dark_mode_var.get(),
+            "trading_mode": trading_mode_var.get()
         }
 
         save_settings_to_file(settings_data)
